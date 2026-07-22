@@ -83,3 +83,30 @@ def test_reset_clears_milestones():
     env.step(0)
     _, info = env.reset()
     assert info["milestones"] == []
+
+
+def test_intro_chain_pays_each_milestone_once():
+    emu = FakeEmulator()
+    env = PokemonEmeraldEnv(emu, initial_state=b"state", max_steps=50)
+    env.reset()
+
+    emu.map_group, emu.map_num = 0, 9  # exit the truck into Littleroot
+    _, reward, _, _, info = env.step(0)
+    assert reward >= 5.0
+    assert "exit_truck" in info["milestones"]
+
+    emu.map_group, emu.map_num = 1, 2  # enter May's house
+    _, reward, _, _, info = env.step(0)
+    assert reward >= 5.0
+    assert "enter_house" in info["milestones"]
+
+    emu.clock_set = True  # set the bedroom wall clock
+    _, reward, _, _, info = env.step(0)
+    assert reward >= 15.0
+    assert "clock_set" in info["milestones"]
+
+    emu.map_group, emu.map_num = 0, 9  # back outside with the clock set
+    _, reward, terminated, _, info = env.step(0)
+    assert reward >= 10.0
+    assert "back_outside" in info["milestones"]
+    assert terminated is False

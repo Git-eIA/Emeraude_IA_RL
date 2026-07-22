@@ -25,8 +25,9 @@ class FakeEmulator:
     def __init__(self) -> None:
         self.x = 5
         self.y = 5
-        self.map_group = 1
-        self.map_num = 2
+        self.map_group = 0
+        self.map_num = 10  # Oldale: neutral map, fires no milestone
+        self.clock_set = False
         self.party_count = 0
         self.party_levels: list[int] = []
         self.loaded_states: list[bytes] = []
@@ -60,11 +61,15 @@ class FakeEmulator:
             slot_addr = game_state.PARTY_ADDR + slot * game_state.PARTY_MON_SIZE
             if address == slot_addr + game_state.PARTY_LEVEL_OFFSET:
                 return bytes([level])[:length]
+        # Flags byte 10 holds FLAG_SET_WALL_CLOCK (0x51) at bit 1.
+        if address == self._sb1 + 0x1270 + 10:
+            return (b"\x02" if self.clock_set else b"\x00") * length
         return b"\x00" * length
 
     def load_state(self, state: bytes) -> None:
         self.loaded_states.append(state)
         self.x, self.y = 5, 5
+        self.clock_set = False
         self.party_count = 0
         self.party_levels = []
 
