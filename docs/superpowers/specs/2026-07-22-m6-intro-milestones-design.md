@@ -54,6 +54,23 @@ dans la maison".
 7. If the agent stalls at the clock, a future `upstairs` milestone
    (maps `(1, 1)` / `(1, 3)`) can be inserted — out of scope for M6.
 
+## Addendum M6.1 (2026-07-22, approved) — anti-farming levers activated
+
+After 3M steps the intro chain is 100% learned (back_outside 5/5) but
+`reach_route_101` never fires: the agent tile-farms Littleroot (345-410
+tiles/ep) and hovers at y=2-4, one step short of the northern exit (reached
+y=0 once, never crossed). Both reserve levers are now applied:
+
+1. **Revisit penalty:** `ExplorationTracker.update()` returns
+   `REVISIT_PENALTY = -0.01` for already-visited tiles (first visit stays +1).
+   Standing still also pays the penalty — intentional.
+2. **New milestone `north_littleroot` (+10):** `clock_set` AND map `(0, 9)`
+   AND `y <= 1` (`NORTH_LITTLEROOT_MAX_Y`), inserted between `back_outside`
+   and `reach_route_101`. Chain total becomes **165 points**.
+
+Training resumes from the 3M checkpoint (intro knowledge kept); reward-scheme
+change does not require a from-scratch retrain.
+
 ## Testing
 
 - Unit: flag reading (`build_memory` gains `clock_set` param), each new
