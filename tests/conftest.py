@@ -25,6 +25,10 @@ class FakeEmulator:
     def __init__(self) -> None:
         self.x = 5
         self.y = 5
+        self.map_group = 1
+        self.map_num = 2
+        self.party_count = 0
+        self.party_levels: list[int] = []
         self.loaded_states: list[bytes] = []
         self._sb1 = 0x02025A00
 
@@ -49,12 +53,20 @@ class FakeEmulator:
             # Coordinates are s16 in Emerald; use signed=True to handle negative values.
             return self.x.to_bytes(2, "little", signed=True) + self.y.to_bytes(2, "little", signed=True)
         if address == self._sb1 + 4:
-            return bytes([1, 2])[:length]
+            return bytes([self.map_group, self.map_num])[:length]
+        if address == game_state.PARTY_COUNT_ADDR:
+            return bytes([self.party_count])[:length]
+        for slot, level in enumerate(self.party_levels):
+            slot_addr = game_state.PARTY_ADDR + slot * game_state.PARTY_MON_SIZE
+            if address == slot_addr + game_state.PARTY_LEVEL_OFFSET:
+                return bytes([level])[:length]
         return b"\x00" * length
 
     def load_state(self, state: bytes) -> None:
         self.loaded_states.append(state)
         self.x, self.y = 5, 5
+        self.party_count = 0
+        self.party_levels = []
 
     def screenshot(self) -> np.ndarray:
         # numpy seeds must be non-negative; abs() handles negative coordinates.

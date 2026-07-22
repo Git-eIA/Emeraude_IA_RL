@@ -48,3 +48,38 @@ def test_truncates_at_max_steps():
     for _ in range(3):
         _, _, _, truncated, _ = env.step(noop)
     assert truncated
+
+
+def test_starter_terminates_episode_with_jackpot():
+    emu = FakeEmulator()
+    env = PokemonEmeraldEnv(emu, initial_state=b"state", max_steps=50)
+    env.reset()
+    emu.party_count = 1
+    emu.party_levels = [5]
+    _, reward, terminated, truncated, info = env.step(0)
+    # starter +100, level sum 0->5 gives +25, plus any exploration
+    assert reward >= 125.0
+    assert terminated is True
+    assert truncated is False
+    assert "starter_obtained" in info["milestones"]
+
+
+def test_route_101_milestone_pays_without_terminating():
+    emu = FakeEmulator()
+    env = PokemonEmeraldEnv(emu, initial_state=b"state", max_steps=50)
+    env.reset()
+    emu.map_group, emu.map_num = 0, 16
+    _, reward, terminated, _, info = env.step(0)
+    assert reward >= 20.0
+    assert terminated is False
+    assert "reach_route_101" in info["milestones"]
+
+
+def test_reset_clears_milestones():
+    emu = FakeEmulator()
+    env = PokemonEmeraldEnv(emu, initial_state=b"state", max_steps=50)
+    env.reset()
+    emu.party_count = 1
+    env.step(0)
+    _, info = env.reset()
+    assert info["milestones"] == []

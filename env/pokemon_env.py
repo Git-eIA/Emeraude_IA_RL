@@ -10,8 +10,9 @@ from gymnasium import spaces
 from PIL import Image
 
 from emulator import buttons
-from env.game_state import EmeraldReader
-from env.rewards import ExplorationTracker
+from env.game_state import EmeraldReader, PlayerState
+from env.milestones import MilestoneTracker, starter_milestones
+from env.rewards import ExplorationTracker, LevelRewardTracker
 
 FRAME_SIZE = (84, 84)  # (width, height) after downscale
 FRAME_STACK = 3
@@ -48,6 +49,8 @@ class PokemonEmeraldEnv(gym.Env):
         self._max_steps = max_steps
         self._reader = EmeraldReader(emulator.read_bytes)
         self._tracker = ExplorationTracker()
+        self._milestones = MilestoneTracker(starter_milestones())
+        self._levels = LevelRewardTracker()
         self._frames: deque[np.ndarray] = deque(maxlen=FRAME_STACK)
         self._step_count = 0
         self.action_space = spaces.Discrete(len(self.ACTIONS))
@@ -59,12 +62,14 @@ class PokemonEmeraldEnv(gym.Env):
         super().reset(seed=seed)
         self.emulator.load_state(self._initial_state)
         self._tracker.reset()
+        self._milestones.reset()
+        self._levels.reset()
         self._frames.clear()
         self._step_count = 0
         frame = self._current_frame()
         for _ in range(FRAME_STACK):
             self._frames.append(frame)
-        return self._observation(), self._info()
+        return self._observation(), self._info(self._reader.player_state())
 
     def step(
         self, action: int
@@ -73,9 +78,12 @@ class PokemonEmeraldEnv(gym.Env):
         self.emulator.step(keys, FRAMES_PER_ACTION)
         self._frames.append(self._current_frame())
         self._step_count += 1
-        reward = self._tracker.update(self._reader.player_state())
-        truncated = self._step_count >= self._max_steps
-        return self._observation(), reward, False, truncated, self._info()
+        state = self._reader.player_state()
+        reward = self._tracker.update(state)
+        milestone_reward, terminated = self._milestones.update(state)
+        reward += milestone_reward + self._levels.update(self._reader.party_levels())
+        truncated = not terminated and self._step_count >= self._max_steps
+        return self._observation(), reward, terminated, truncated, self._info(state)
 
     def render(self) -> np.ndarray:
         return self.emulator.screenshot()
@@ -87,10 +95,10 @@ class PokemonEmeraldEnv(gym.Env):
     def _observation(self) -> np.ndarray:
         return np.stack(self._frames, axis=-1)
 
-    def _info(self) -> dict[str, Any]:
-        state = self._reader.player_state()
+    def _info(self, state: PlayerState | None) -> dict[str, Any]:
         return {
             "visited_tiles": self._tracker.visited_count,
             "badges": state.badges if state else 0,
             "map": (state.map_group, state.map_num) if state else None,
+            "milestones": sorted(self._milestones.fired),
         }
