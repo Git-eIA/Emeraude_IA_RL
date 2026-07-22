@@ -13,3 +13,7 @@ states/
 # Training artifacts
 runs/
 checkpoints/
+
+# Debug artifacts
+smoke_frame.png
+scripted_frames/

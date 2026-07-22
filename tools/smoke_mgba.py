@@ -7,9 +7,11 @@ from pathlib import Path
 
 import mgba.core
 import mgba.image
+import mgba.log
 
 
 def main() -> int:
+    mgba.log.silence()
     rom = os.environ.get("POKEMON_EMERALD_ROM")
     if not rom:
         print("Set POKEMON_EMERALD_ROM to a .gba file")
@@ -26,7 +28,9 @@ def main() -> int:
         core.run_frame()
     out = Path("smoke_frame.png")
     image.to_pil().convert("RGB").save(out)
-    print(f"OK — frame written to {out}")
+    # Game code at 0x080000AC identifies the ROM (Emerald FR = BPEF)
+    game_code = bytes(core.memory.u8[0x080000AC:0x080000B0]).decode("ascii", "replace")
+    print(f"OK — game code {game_code} → {out}")
     return 0
 
 
