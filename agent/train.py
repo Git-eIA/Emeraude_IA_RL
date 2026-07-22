@@ -9,6 +9,7 @@ from pathlib import Path
 import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
+from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
 from emulator.gba import GbaEmulator
@@ -20,8 +21,10 @@ STATE_PATH = Path("states/initial.state")
 
 
 def make_env(rom_path: str, initial_state: bytes, max_steps: int):
-    def _init() -> PokemonEmeraldEnv:
-        return PokemonEmeraldEnv(GbaEmulator(rom_path), initial_state, max_steps=max_steps)
+    def _init() -> Monitor:
+        # Monitor records episode rewards/lengths so SB3 logs rollout/ep_rew_mean.
+        env = PokemonEmeraldEnv(GbaEmulator(rom_path), initial_state, max_steps=max_steps)
+        return Monitor(env)
 
     return _init
 
