@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from env.game_state import PlayerState
-from env.rewards import ExplorationTracker
+from env.rewards import ExplorationTracker, REWARD_PER_LEVEL, LevelRewardTracker
 
 
 def state(x: int, y: int, group: int = 0, num: int = 0) -> PlayerState:
@@ -40,3 +40,33 @@ def test_reset_clears_history():
     tracker.reset()
     assert tracker.visited_count == 0
     assert tracker.update(state(1, 1)) == 1.0
+
+
+def test_level_empty_party_gives_zero():
+    assert LevelRewardTracker().update([]) == 0.0
+
+
+def test_level_gain_pays_once():
+    tracker = LevelRewardTracker()
+    assert tracker.update([5]) == 5 * REWARD_PER_LEVEL
+    assert tracker.update([5]) == 0.0
+    assert tracker.update([6]) == REWARD_PER_LEVEL
+
+
+def test_level_sum_across_party():
+    tracker = LevelRewardTracker()
+    tracker.update([5])
+    assert tracker.update([5, 3]) == 3 * REWARD_PER_LEVEL
+
+
+def test_level_drop_gives_zero_not_negative():
+    tracker = LevelRewardTracker()
+    tracker.update([5, 3])
+    assert tracker.update([5]) == 0.0
+
+
+def test_level_reset():
+    tracker = LevelRewardTracker()
+    tracker.update([5])
+    tracker.reset()
+    assert tracker.update([5]) == 5 * REWARD_PER_LEVEL

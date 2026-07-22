@@ -25,3 +25,28 @@ class ExplorationTracker:
             return 0.0
         self._visited.add(tile)
         return 1.0
+
+
+REWARD_PER_LEVEL = 5.0
+
+
+class LevelRewardTracker:
+    """Pays REWARD_PER_LEVEL once per party level gained (sum over slots).
+
+    Tracks the best sum seen so a level drop (deposit, trade) never pays
+    negative reward nor re-pays on recovery.
+    """
+
+    def __init__(self) -> None:
+        self._best_sum = 0
+
+    def reset(self) -> None:
+        self._best_sum = 0
+
+    def update(self, levels: list[int]) -> float:
+        total = sum(levels)
+        if total <= self._best_sum:
+            return 0.0
+        gained = total - self._best_sum
+        self._best_sum = total
+        return REWARD_PER_LEVEL * gained
