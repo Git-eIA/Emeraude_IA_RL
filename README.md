@@ -4,6 +4,7 @@ A PPO agent that learns to play Pokémon Emerald through a headless mGBA core.
 
 ## Setup
 
+    mkdir -p roms/ states/
     python3 -m venv .venv && source .venv/bin/activate
     pip install -e ".[dev]"
     # libmgba-py: see docs/architecture/README.md (built separately)
