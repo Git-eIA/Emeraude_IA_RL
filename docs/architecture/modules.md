@@ -8,5 +8,6 @@
 | env/rewards.py | Exploration reward | ExplorationTracker | game_state |
 | env/pokemon_env.py | Gymnasium env | PokemonEmeraldEnv | game_state, rewards |
 | agent/train.py | PPO training entrypoint | main() | env, sb3, torch |
+| tools/smoke_mgba.py | libmgba-py binding smoke test | CLI | libmgba-py |
 | tools/run_scripted.py | Scripted-input M1 check | CLI | emulator |
 | tools/play_interactive.py | Human play + savestate creation | CLI | emulator, pygame |

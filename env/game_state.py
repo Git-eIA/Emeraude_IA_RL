@@ -59,8 +59,8 @@ class EmeraldReader:
         pos = self._read(sb1 + _POS_OFFSET, 4)
         location = self._read(sb1 + _LOCATION_OFFSET, 2)
         return PlayerState(
-            x=int.from_bytes(pos[0:2], "little"),
-            y=int.from_bytes(pos[2:4], "little"),
+            x=int.from_bytes(pos[0:2], "little", signed=True),
+            y=int.from_bytes(pos[2:4], "little", signed=True),
             map_group=location[0],
             map_num=location[1],
             badges=self._badge_count(sb1),

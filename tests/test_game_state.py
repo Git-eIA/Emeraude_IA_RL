@@ -31,8 +31,8 @@ def build_memory(
 ) -> dict[int, bytes]:
     sb1 = 0x02025A00  # arbitrary but valid EWRAM address for the fake
     save_block1 = bytearray(0x1400)  # must fit flags region up to 0x137E
-    save_block1[0:2] = x.to_bytes(2, "little")
-    save_block1[2:4] = y.to_bytes(2, "little")
+    save_block1[0:2] = x.to_bytes(2, "little", signed=True)
+    save_block1[2:4] = y.to_bytes(2, "little", signed=True)
     save_block1[4] = map_group
     save_block1[5] = map_num
     # Badge flags start at flag 0x867 -> byte 0x10C bit 7 of the flags array
@@ -50,6 +50,15 @@ def test_reads_player_state():
     reader = EmeraldReader(make_fake_read(memory))
     state = reader.player_state()
     assert state == PlayerState(x=12, y=7, map_group=3, map_num=1, badges=3, party_count=2)
+
+
+def test_negative_coords_are_signed():
+    # Coords16 is s16; some map transitions use negative tile coordinates.
+    memory = build_memory(x=-3, y=-1, map_group=0, map_num=9, badge_bits=0, party_count=1)
+    reader = EmeraldReader(make_fake_read(memory))
+    state = reader.player_state()
+    assert state is not None
+    assert (state.x, state.y) == (-3, -1)
 
 
 def test_invalid_save_block_pointer_returns_none():
