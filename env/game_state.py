@@ -68,6 +68,8 @@ class EmeraldReader:
         )
 
     def _badge_count(self, sb1: int) -> int:
+        # Flags are a bit array: flag 0x867 lives at byte 0x10C bit 7. The 8 badge
+        # flags are contiguous, so read 2 bytes and mask 8 bits after the shift.
         byte_index, bit_index = divmod(_FIRST_BADGE_FLAG, 8)
         raw = int.from_bytes(self._read(sb1 + _FLAGS_OFFSET + byte_index, 2), "little")
         return ((raw >> bit_index) & 0xFF).bit_count()

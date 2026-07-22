@@ -88,3 +88,4 @@ def test_real_rom_state_after_initial_savestate(rom_path):
     state = EmeraldReader(emu.read_bytes).player_state()
     assert state is not None
     assert state.party_count <= 6
+    assert 0 <= state.badges <= 8
