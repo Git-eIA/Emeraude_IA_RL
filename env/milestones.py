@@ -11,8 +11,11 @@ from dataclasses import dataclass
 
 from env.game_state import PlayerState
 
-# MAP_ROUTE101 from pret/pokeemerald include/constants/map_groups.h
+# Map IDs from pret/pokeemerald data/maps/map_groups.json
+LITTLEROOT = (0, 9)
 ROUTE_101 = (0, 16)
+# Brendan's and May's house ground floors; the player spawns in one of them.
+PLAYER_HOUSES_1F = frozenset({(1, 0), (1, 2)})
 
 
 @dataclass(frozen=True)
@@ -24,8 +27,28 @@ class Milestone:
 
 
 def starter_milestones() -> tuple[Milestone, ...]:
-    """M5 chain: leave town northward, then obtain the starter."""
+    """M6 chain: play the scripted intro, leave town northward, obtain the starter."""
     return (
+        Milestone(
+            "exit_truck",
+            lambda s: (s.map_group, s.map_num) == LITTLEROOT,
+            5.0,
+        ),
+        Milestone(
+            "enter_house",
+            lambda s: (s.map_group, s.map_num) in PLAYER_HOUSES_1F,
+            5.0,
+        ),
+        Milestone(
+            "clock_set",
+            lambda s: s.clock_set,
+            15.0,
+        ),
+        Milestone(
+            "back_outside",
+            lambda s: s.clock_set and (s.map_group, s.map_num) == LITTLEROOT,
+            10.0,
+        ),
         Milestone(
             "reach_route_101",
             lambda s: (s.map_group, s.map_num) == ROUTE_101,

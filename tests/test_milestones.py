@@ -5,7 +5,8 @@ from env.milestones import Milestone, MilestoneTracker, starter_milestones
 
 
 def make_state(**overrides) -> PlayerState:
-    defaults = dict(x=0, y=0, map_group=0, map_num=9, badges=0, party_count=0)
+    # Neutral defaults: Oldale (0, 10) fires no milestone.
+    defaults = dict(x=0, y=0, map_group=0, map_num=10, badges=0, party_count=0, clock_set=False)
     return PlayerState(**{**defaults, **overrides})
 
 
@@ -57,3 +58,60 @@ def test_fired_names_exposed():
     tracker = MilestoneTracker(starter_milestones())
     tracker.update(make_state(map_group=0, map_num=16))
     assert tracker.fired == frozenset({"reach_route_101"})
+
+
+def test_exit_truck_milestone():
+    tracker = MilestoneTracker(starter_milestones())
+    reward, terminated = tracker.update(make_state(map_group=0, map_num=9))
+    assert reward == 5.0
+    assert terminated is False
+    assert tracker.fired == frozenset({"exit_truck"})
+
+
+def test_enter_house_fires_for_both_houses():
+    for map_num in (0, 2):
+        tracker = MilestoneTracker(starter_milestones())
+        reward, _ = tracker.update(make_state(map_group=1, map_num=map_num))
+        assert reward == 5.0
+        assert tracker.fired == frozenset({"enter_house"})
+
+
+def test_clock_set_milestone():
+    tracker = MilestoneTracker(starter_milestones())
+    reward, terminated = tracker.update(make_state(map_group=1, map_num=0, clock_set=True))
+    # enter_house (+5) and clock_set (+15) fire together in the house
+    assert reward == 20.0
+    assert terminated is False
+
+
+def test_back_outside_requires_clock():
+    tracker = MilestoneTracker(starter_milestones())
+    # Outside without clock: only exit_truck
+    reward, _ = tracker.update(make_state(map_group=0, map_num=9))
+    assert reward == 5.0
+    assert "back_outside" not in tracker.fired
+    # Outside with clock set: clock_set + back_outside fire
+    reward, _ = tracker.update(make_state(map_group=0, map_num=9, clock_set=True))
+    assert reward == 25.0
+    assert "back_outside" in tracker.fired
+
+
+def test_full_chain_sums_to_155():
+    tracker = MilestoneTracker(starter_milestones())
+    total = 0.0
+    steps = (
+        make_state(map_group=25, map_num=40),                 # in the truck: nothing
+        make_state(map_group=0, map_num=9),                   # exit_truck +5
+        make_state(map_group=1, map_num=0),                   # enter_house +5
+        make_state(map_group=1, map_num=0, clock_set=True),   # clock_set +15
+        make_state(map_group=0, map_num=9, clock_set=True),   # back_outside +10
+        make_state(map_group=0, map_num=16, clock_set=True),  # reach_route_101 +20
+        make_state(map_group=0, map_num=16, clock_set=True, party_count=1),  # starter +100
+    )
+    terminated = False
+    for state in steps:
+        reward, terminated = tracker.update(state)
+        total += reward
+    assert total == 155.0
+    assert terminated is True
+    assert len(tracker.fired) == 6
