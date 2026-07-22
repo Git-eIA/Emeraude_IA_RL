@@ -1,7 +1,7 @@
-"""Play the ROM with the keyboard; press S to save states/initial.state.
+"""Play the ROM with the keyboard; press F5 to save states/initial.state.
 
 Keys: arrows = D-pad, X = A, Z = B, Enter = Start, Backspace = Select,
-A = L, S(hift) keys per MAPPING below. Press F5 to save state, Esc to quit.
+A = L, S = R. Press F5 to save state, Esc to quit.
 """
 from __future__ import annotations
 
