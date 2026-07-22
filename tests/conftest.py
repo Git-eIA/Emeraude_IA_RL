@@ -46,7 +46,8 @@ class FakeEmulator:
         if address == game_state.SAVE_BLOCK1_PTR:
             return self._sb1.to_bytes(4, "little")[:length]
         if address == self._sb1:
-            return self.x.to_bytes(2, "little") + self.y.to_bytes(2, "little")
+            # Coordinates are s16 in Emerald; use signed=True to handle negative values.
+            return self.x.to_bytes(2, "little", signed=True) + self.y.to_bytes(2, "little", signed=True)
         if address == self._sb1 + 4:
             return bytes([1, 2])[:length]
         return b"\x00" * length
@@ -56,5 +57,6 @@ class FakeEmulator:
         self.x, self.y = 5, 5
 
     def screenshot(self) -> np.ndarray:
-        rng = np.random.default_rng(seed=self.x * 1000 + self.y)
+        # numpy seeds must be non-negative; abs() handles negative coordinates.
+        rng = np.random.default_rng(seed=abs(self.x * 1000 + self.y))
         return rng.integers(0, 255, size=(160, 240, 3), dtype=np.uint8)
