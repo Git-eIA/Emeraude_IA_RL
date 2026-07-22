@@ -1,0 +1,31 @@
+[project]
+name = "emu"
+version = "0.1.0"
+description = "Deep RL agent for Pokémon Emerald via headless mGBA"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=1.26",
+    "gymnasium>=1.0",
+    "stable-baselines3>=2.4",
+    "torch>=2.4",
+    "pillow>=10.0",
+    "pygame>=2.5",
+    "tensorboard>=2.16",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["emulator", "env", "agent"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
