@@ -157,19 +157,22 @@ def test_party_levels_count_clamped_to_six():
 
 @requires_rom
 def test_real_rom_state_after_initial_savestate(rom_path):
-    """Sanity check against the real game: state is readable post-intro."""
+    """Sanity check against the real game: truck-start savestate is readable."""
     from emulator.gba import GbaEmulator
+    from env.game_state import FLAG_SET_WALL_CLOCK
 
     state_file = Path("states/initial.state")
     if not state_file.is_file():
-        pytest.skip("states/initial.state not created yet (Task 4)")
+        pytest.skip("states/initial.state not created yet")
     emu = GbaEmulator(rom_path)
     emu.load_state(state_file.read_bytes())
     emu.step(frames=10)
     reader = EmeraldReader(emu.read_bytes)
     state = reader.player_state()
     assert state is not None
-    assert state.party_count <= 6
-    assert 0 <= state.badges <= 8
-    assert reader.party_levels() == []  # savestate party is empty
-    assert reader.read_flag(0x867) is False  # no badge yet
+    assert (state.map_group, state.map_num) == (25, 40)  # InsideOfTruck
+    assert state.party_count == 0
+    assert state.badges == 0
+    assert state.clock_set is False
+    assert reader.party_levels() == []
+    assert reader.read_flag(FLAG_SET_WALL_CLOCK) is False
