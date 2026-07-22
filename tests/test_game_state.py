@@ -30,7 +30,7 @@ def build_memory(
     *, x: int, y: int, map_group: int, map_num: int, badge_bits: int, party_count: int
 ) -> dict[int, bytes]:
     sb1 = 0x02025A00  # arbitrary but valid EWRAM address for the fake
-    save_block1 = bytearray(0x1290)
+    save_block1 = bytearray(0x1400)  # must fit flags region up to 0x137E
     save_block1[0:2] = x.to_bytes(2, "little")
     save_block1[2:4] = y.to_bytes(2, "little")
     save_block1[4] = map_group
