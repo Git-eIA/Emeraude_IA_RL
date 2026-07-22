@@ -138,7 +138,10 @@ def test_real_rom_state_after_initial_savestate(rom_path):
     emu = GbaEmulator(rom_path)
     emu.load_state(state_file.read_bytes())
     emu.step(frames=10)
-    state = EmeraldReader(emu.read_bytes).player_state()
+    reader = EmeraldReader(emu.read_bytes)
+    state = reader.player_state()
     assert state is not None
     assert state.party_count <= 6
     assert 0 <= state.badges <= 8
+    assert reader.party_levels() == []  # savestate party is empty
+    assert reader.read_flag(0x867) is False  # no badge yet
