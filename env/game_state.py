@@ -36,6 +36,9 @@ _POS_OFFSET = 0x0000  # Coords16 pos: s16 x, s16 y
 _LOCATION_OFFSET = 0x0004  # WarpData location: s8 mapGroup, s8 mapNum
 _FLAGS_OFFSET = 0x1270  # u8 flags[]
 _FIRST_BADGE_FLAG = 0x867  # FLAG_BADGE01_GET .. FLAG_BADGE08_GET are contiguous
+# FLAG_SET_WALL_CLOCK from pret/pokeemerald include/constants/flags.h.
+# The intro is complete only once the bedroom wall clock has been set.
+FLAG_SET_WALL_CLOCK = 0x51
 
 _EWRAM_START = 0x02000000
 _EWRAM_END = 0x02040000
@@ -49,6 +52,7 @@ class PlayerState:
     map_num: int
     badges: int
     party_count: int
+    clock_set: bool = False
 
 
 class EmeraldReader:
@@ -71,6 +75,7 @@ class EmeraldReader:
             map_num=location[1],
             badges=self._badge_count(sb1),
             party_count=self._read(PARTY_COUNT_ADDR, 1)[0],
+            clock_set=self._flag(sb1, FLAG_SET_WALL_CLOCK),
         )
 
     def read_flag(self, flag_id: int) -> bool:

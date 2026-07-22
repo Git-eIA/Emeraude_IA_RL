@@ -27,7 +27,14 @@ def make_fake_read(memory: dict[int, bytes]):
 
 
 def build_memory(
-    *, x: int, y: int, map_group: int, map_num: int, badge_bits: int, party_count: int
+    *,
+    x: int,
+    y: int,
+    map_group: int,
+    map_num: int,
+    badge_bits: int,
+    party_count: int,
+    clock_set: bool = False,
 ) -> dict[int, bytes]:
     sb1 = 0x02025A00  # arbitrary but valid EWRAM address for the fake
     save_block1 = bytearray(0x1400)  # must fit flags region up to 0x137E
@@ -38,6 +45,9 @@ def build_memory(
     # Badge flags start at flag 0x867 -> byte 0x10C bit 7 of the flags array
     flags_value = badge_bits << 7
     save_block1[0x1270 + 0x10C : 0x1270 + 0x10E] = flags_value.to_bytes(2, "little")
+    if clock_set:
+        # FLAG_SET_WALL_CLOCK = 0x51 -> byte 10, bit 1 of the flags array
+        save_block1[0x1270 + 10] |= 0b10
     return {
         SAVE_BLOCK1_PTR: sb1.to_bytes(4, "little"),
         sb1: bytes(save_block1),
@@ -105,6 +115,24 @@ def test_read_flag_invalid_pointer_is_false():
     memory = {SAVE_BLOCK1_PTR: (0x00000000).to_bytes(4, "little")}
     reader = EmeraldReader(make_fake_read(memory))
     assert reader.read_flag(0x867) is False
+
+
+def test_clock_set_flag_read_into_state():
+    memory = build_memory(
+        x=0, y=0, map_group=1, map_num=1, badge_bits=0, party_count=0, clock_set=True
+    )
+    reader = EmeraldReader(make_fake_read(memory))
+    state = reader.player_state()
+    assert state is not None
+    assert state.clock_set is True
+
+
+def test_clock_not_set_by_default():
+    memory = build_memory(x=0, y=0, map_group=1, map_num=1, badge_bits=0, party_count=0)
+    reader = EmeraldReader(make_fake_read(memory))
+    state = reader.player_state()
+    assert state is not None
+    assert state.clock_set is False
 
 
 def test_party_levels_empty():
