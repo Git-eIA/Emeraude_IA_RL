@@ -1,0 +1,90 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from env.game_state import (
+    PARTY_COUNT_ADDR,
+    SAVE_BLOCK1_PTR,
+    EmeraldReader,
+    PlayerState,
+)
+from tests.conftest import requires_rom
+
+
+def make_fake_read(memory: dict[int, bytes]):
+    """Fake reader backed by a sparse address->bytes dict."""
+
+    def read(address: int, length: int) -> bytes:
+        for base, blob in memory.items():
+            if base <= address and address + length <= base + len(blob):
+                offset = address - base
+                return blob[offset : offset + length]
+        return b"\x00" * length
+
+    return read
+
+
+def build_memory(
+    *, x: int, y: int, map_group: int, map_num: int, badge_bits: int, party_count: int
+) -> dict[int, bytes]:
+    sb1 = 0x02025A00  # arbitrary but valid EWRAM address for the fake
+    save_block1 = bytearray(0x1290)
+    save_block1[0:2] = x.to_bytes(2, "little")
+    save_block1[2:4] = y.to_bytes(2, "little")
+    save_block1[4] = map_group
+    save_block1[5] = map_num
+    # Badge flags start at flag 0x867 -> byte 0x10C bit 7 of the flags array
+    flags_value = badge_bits << 7
+    save_block1[0x1270 + 0x10C : 0x1270 + 0x10E] = flags_value.to_bytes(2, "little")
+    return {
+        SAVE_BLOCK1_PTR: sb1.to_bytes(4, "little"),
+        sb1: bytes(save_block1),
+        PARTY_COUNT_ADDR: bytes([party_count]),
+    }
+
+
+def test_reads_player_state():
+    memory = build_memory(x=12, y=7, map_group=3, map_num=1, badge_bits=0b00000111, party_count=2)
+    reader = EmeraldReader(make_fake_read(memory))
+    state = reader.player_state()
+    assert state == PlayerState(x=12, y=7, map_group=3, map_num=1, badges=3, party_count=2)
+
+
+def test_invalid_save_block_pointer_returns_none():
+    memory = {SAVE_BLOCK1_PTR: (0x00000000).to_bytes(4, "little")}
+    reader = EmeraldReader(make_fake_read(memory))
+    assert reader.player_state() is None
+
+
+def test_zero_badges():
+    memory = build_memory(x=0, y=0, map_group=0, map_num=0, badge_bits=0, party_count=0)
+    reader = EmeraldReader(make_fake_read(memory))
+    state = reader.player_state()
+    assert state is not None
+    assert state.badges == 0
+
+
+def test_all_badges():
+    memory = build_memory(x=1, y=1, map_group=1, map_num=1, badge_bits=0xFF, party_count=6)
+    reader = EmeraldReader(make_fake_read(memory))
+    state = reader.player_state()
+    assert state is not None
+    assert state.badges == 8
+
+
+@requires_rom
+def test_real_rom_state_after_initial_savestate(rom_path):
+    """Sanity check against the real game: state is readable post-intro."""
+    from emulator.gba import GbaEmulator
+
+    state_file = Path("states/initial.state")
+    if not state_file.is_file():
+        pytest.skip("states/initial.state not created yet (Task 4)")
+    emu = GbaEmulator(rom_path)
+    emu.load_state(state_file.read_bytes())
+    emu.step(frames=10)
+    state = EmeraldReader(emu.read_bytes).player_state()
+    assert state is not None
+    assert state.party_count <= 6
