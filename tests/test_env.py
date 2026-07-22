@@ -4,6 +4,7 @@ import numpy as np
 from gymnasium.utils.env_checker import check_env
 
 from env.pokemon_env import OBS_SHAPE, PokemonEmeraldEnv
+from env.rewards import REVISIT_PENALTY
 from tests.conftest import FakeEmulator
 
 
@@ -31,13 +32,13 @@ def test_moving_to_new_tile_gives_positive_reward():
     assert reward > 0.0
 
 
-def test_staying_put_gives_zero_reward_after_first_visit():
+def test_staying_put_pays_revisit_penalty_after_first_visit():
     env = make_env()
     env.reset(seed=0)
     noop = env.ACTIONS.index("noop")
     env.step(noop)
     _, reward, _, _, _ = env.step(noop)
-    assert reward == 0.0
+    assert reward == REVISIT_PENALTY
 
 
 def test_truncates_at_max_steps():
@@ -102,11 +103,11 @@ def test_intro_chain_pays_each_milestone_once():
 
     emu.clock_set = True  # set the bedroom wall clock
     _, reward, _, _, info = env.step(0)
-    assert reward >= 15.0
+    assert reward >= 14.9  # milestone +15, but revisit penalty -0.01
     assert "clock_set" in info["milestones"]
 
     emu.map_group, emu.map_num = 0, 9  # back outside with the clock set
     _, reward, terminated, _, info = env.step(0)
-    assert reward >= 10.0
+    assert reward >= 9.9  # milestone +10, but revisit penalty -0.01
     assert "back_outside" in info["milestones"]
     assert terminated is False

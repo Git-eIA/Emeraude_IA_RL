@@ -1,11 +1,14 @@
-"""Reward shaping. v1: reward discovery of never-visited tiles (map-qualified)."""
+"""Reward shaping: +1 for never-visited tiles, small penalty for revisits."""
 from __future__ import annotations
 
 from env.game_state import PlayerState
 
+# Small enough that milestones dominate; large enough to make loitering lose.
+REVISIT_PENALTY = -0.01
+
 
 class ExplorationTracker:
-    """Gives +1.0 the first time each (map_group, map_num, x, y) tile is seen."""
+    """+1.0 the first time each (map_group, map_num, x, y) tile is seen; REVISIT_PENALTY after."""
 
     def __init__(self) -> None:
         self._visited: set[tuple[int, int, int, int]] = set()
@@ -22,7 +25,7 @@ class ExplorationTracker:
             return 0.0
         tile = (state.map_group, state.map_num, state.x, state.y)
         if tile in self._visited:
-            return 0.0
+            return REVISIT_PENALTY
         self._visited.add(tile)
         return 1.0
 

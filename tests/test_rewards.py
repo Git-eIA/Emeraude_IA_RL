@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from env.game_state import PlayerState
-from env.rewards import ExplorationTracker, REWARD_PER_LEVEL, LevelRewardTracker
+from env.rewards import REVISIT_PENALTY, REWARD_PER_LEVEL, ExplorationTracker, LevelRewardTracker
 
 
 def state(x: int, y: int, group: int = 0, num: int = 0) -> PlayerState:
@@ -11,7 +11,7 @@ def state(x: int, y: int, group: int = 0, num: int = 0) -> PlayerState:
 def test_new_tile_rewards_once():
     tracker = ExplorationTracker()
     assert tracker.update(state(1, 1)) == 1.0
-    assert tracker.update(state(1, 1)) == 0.0
+    assert tracker.update(state(1, 1)) == REVISIT_PENALTY
     assert tracker.update(state(2, 1)) == 1.0
 
 
@@ -40,6 +40,10 @@ def test_reset_clears_history():
     tracker.reset()
     assert tracker.visited_count == 0
     assert tracker.update(state(1, 1)) == 1.0
+
+
+def test_revisit_penalty_is_small_and_negative():
+    assert -0.1 < REVISIT_PENALTY < 0.0
 
 
 def test_level_empty_party_gives_zero():
