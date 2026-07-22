@@ -83,6 +83,50 @@ def test_all_badges():
     assert state.badges == 8
 
 
+def add_party(memory: dict[int, bytes], levels: list[int]) -> None:
+    """Add gPlayerParty structs with the given levels to fake memory."""
+    from env.game_state import PARTY_ADDR, PARTY_LEVEL_OFFSET, PARTY_MON_SIZE
+
+    party = bytearray(PARTY_MON_SIZE * 6)
+    for slot, level in enumerate(levels):
+        party[slot * PARTY_MON_SIZE + PARTY_LEVEL_OFFSET] = level
+    memory[PARTY_ADDR] = bytes(party)
+
+
+def test_read_flag_set_and_unset():
+    # badge_bits=0b1 sets flag 0x867; flag 0x868 stays clear
+    memory = build_memory(x=0, y=0, map_group=0, map_num=0, badge_bits=0b1, party_count=0)
+    reader = EmeraldReader(make_fake_read(memory))
+    assert reader.read_flag(0x867) is True
+    assert reader.read_flag(0x868) is False
+
+
+def test_read_flag_invalid_pointer_is_false():
+    memory = {SAVE_BLOCK1_PTR: (0x00000000).to_bytes(4, "little")}
+    reader = EmeraldReader(make_fake_read(memory))
+    assert reader.read_flag(0x867) is False
+
+
+def test_party_levels_empty():
+    memory = build_memory(x=0, y=0, map_group=0, map_num=0, badge_bits=0, party_count=0)
+    reader = EmeraldReader(make_fake_read(memory))
+    assert reader.party_levels() == []
+
+
+def test_party_levels_two_pokemon():
+    memory = build_memory(x=0, y=0, map_group=0, map_num=0, badge_bits=0, party_count=2)
+    add_party(memory, [5, 12])
+    reader = EmeraldReader(make_fake_read(memory))
+    assert reader.party_levels() == [5, 12]
+
+
+def test_party_levels_count_clamped_to_six():
+    memory = build_memory(x=0, y=0, map_group=0, map_num=0, badge_bits=0, party_count=200)
+    add_party(memory, [5, 5, 5, 5, 5, 5])
+    reader = EmeraldReader(make_fake_read(memory))
+    assert len(reader.party_levels()) == 6
+
+
 @requires_rom
 def test_real_rom_state_after_initial_savestate(rom_path):
     """Sanity check against the real game: state is readable post-intro."""

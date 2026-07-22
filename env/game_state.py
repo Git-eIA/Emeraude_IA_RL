@@ -25,6 +25,12 @@ SAVE_BLOCK1_PTR = 0x03005D8C
 # Verified identical for BPEE and BPEF via pokebot-gen3 symbol tables.
 PARTY_COUNT_ADDR = 0x020244E9
 
+# EWRAM address of gPlayerParty: 6 x 100-byte struct Pokemon, directly after
+# gPlayerPartyCount. No F: override in pokebot-gen3 language patches -> BPEF = BPEE.
+PARTY_ADDR = 0x020244EC
+PARTY_MON_SIZE = 100
+PARTY_LEVEL_OFFSET = 84  # u8 level, unencrypted battle section (pret include/pokemon.h)
+
 # offsetof(struct SaveBlock1, ...) from pret/pokeemerald
 _POS_OFFSET = 0x0000  # Coords16 pos: s16 x, s16 y
 _LOCATION_OFFSET = 0x0004  # WarpData location: s8 mapGroup, s8 mapNum
@@ -53,8 +59,8 @@ class EmeraldReader:
 
     def player_state(self) -> PlayerState | None:
         """Current player state, or None while save blocks are relocating."""
-        sb1 = int.from_bytes(self._read(SAVE_BLOCK1_PTR, 4), "little")
-        if not _EWRAM_START <= sb1 < _EWRAM_END:
+        sb1 = self._save_block1()
+        if sb1 is None:
             return None
         pos = self._read(sb1 + _POS_OFFSET, 4)
         location = self._read(sb1 + _LOCATION_OFFSET, 2)
@@ -67,9 +73,32 @@ class EmeraldReader:
             party_count=self._read(PARTY_COUNT_ADDR, 1)[0],
         )
 
+    def read_flag(self, flag_id: int) -> bool:
+        """True if the event flag is set; False while save blocks relocate."""
+        sb1 = self._save_block1()
+        if sb1 is None:
+            return False
+        return self._flag(sb1, flag_id)
+
+    def party_levels(self) -> list[int]:
+        """Levels of the party Pokémon in slot order; empty list when no party."""
+        count = min(self._read(PARTY_COUNT_ADDR, 1)[0], 6)
+        return [
+            self._read(PARTY_ADDR + slot * PARTY_MON_SIZE + PARTY_LEVEL_OFFSET, 1)[0]
+            for slot in range(count)
+        ]
+
+    def _save_block1(self) -> int | None:
+        sb1 = int.from_bytes(self._read(SAVE_BLOCK1_PTR, 4), "little")
+        if not _EWRAM_START <= sb1 < _EWRAM_END:
+            return None
+        return sb1
+
+    def _flag(self, sb1: int, flag_id: int) -> bool:
+        byte_index, bit_index = divmod(flag_id, 8)
+        raw = self._read(sb1 + _FLAGS_OFFSET + byte_index, 1)[0]
+        return bool(raw >> bit_index & 1)
+
     def _badge_count(self, sb1: int) -> int:
-        # Flags are a bit array: flag 0x867 lives at byte 0x10C bit 7. The 8 badge
-        # flags are contiguous, so read 2 bytes and mask 8 bits after the shift.
-        byte_index, bit_index = divmod(_FIRST_BADGE_FLAG, 8)
-        raw = int.from_bytes(self._read(sb1 + _FLAGS_OFFSET + byte_index, 2), "little")
-        return ((raw >> bit_index) & 0xFF).bit_count()
+        # FLAG_BADGE01_GET..FLAG_BADGE08_GET are contiguous from _FIRST_BADGE_FLAG.
+        return sum(self._flag(sb1, _FIRST_BADGE_FLAG + i) for i in range(8))
