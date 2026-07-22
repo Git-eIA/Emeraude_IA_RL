@@ -111,3 +111,8 @@ def test_intro_chain_pays_each_milestone_once():
     assert reward >= 9.9  # milestone +10, but revisit penalty -0.01
     assert "back_outside" in info["milestones"]
     assert terminated is False
+
+    emu.y = 1  # walk up to the northern exit
+    _, reward, _, _, info = env.step(0)
+    assert reward >= 10.0
+    assert "north_littleroot" in info["milestones"]

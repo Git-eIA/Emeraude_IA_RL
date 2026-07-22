@@ -17,6 +17,10 @@ ROUTE_101 = (0, 16)
 # Brendan's and May's house ground floors; the player spawns in one of them.
 PLAYER_HOUSES_1F = frozenset({(1, 0), (1, 2)})
 
+# Littleroot's exit to Route 101 is at the top edge; this milestone pays for
+# committing northward through the boundary.
+NORTH_LITTLEROOT_MAX_Y = 1
+
 
 @dataclass(frozen=True)
 class Milestone:
@@ -27,7 +31,10 @@ class Milestone:
 
 
 def starter_milestones() -> tuple[Milestone, ...]:
-    """M6 chain: play the scripted intro, leave town northward, obtain the starter."""
+    """M6 chain: play the scripted intro, leave town northward, obtain the starter.
+
+    Total reward: 165 points across 7 milestones.
+    """
     return (
         Milestone(
             "exit_truck",
@@ -47,6 +54,13 @@ def starter_milestones() -> tuple[Milestone, ...]:
         Milestone(
             "back_outside",
             lambda s: s.clock_set and (s.map_group, s.map_num) == LITTLEROOT,
+            10.0,
+        ),
+        Milestone(
+            "north_littleroot",
+            lambda s: s.clock_set
+            and (s.map_group, s.map_num) == LITTLEROOT
+            and s.y <= NORTH_LITTLEROOT_MAX_Y,
             10.0,
         ),
         Milestone(

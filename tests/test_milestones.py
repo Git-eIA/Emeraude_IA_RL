@@ -5,8 +5,8 @@ from env.milestones import Milestone, MilestoneTracker, starter_milestones
 
 
 def make_state(**overrides) -> PlayerState:
-    # Neutral defaults: Oldale (0, 10) fires no milestone.
-    defaults = dict(x=0, y=0, map_group=0, map_num=10, badges=0, party_count=0, clock_set=False)
+    # Neutral defaults: Oldale (0, 10) at y=5 fires no milestone.
+    defaults = dict(x=0, y=5, map_group=0, map_num=10, badges=0, party_count=0, clock_set=False)
     return PlayerState(**{**defaults, **overrides})
 
 
@@ -96,7 +96,33 @@ def test_back_outside_requires_clock():
     assert "back_outside" in tracker.fired
 
 
-def test_full_chain_sums_to_155():
+def test_north_littleroot_fires_at_north_edge_with_clock_set():
+    tracker = MilestoneTracker(starter_milestones())
+    reward, _ = tracker.update(make_state(map_group=0, map_num=9, clock_set=True, y=1))
+    assert "north_littleroot" in tracker.fired
+    # exit_truck (5) + clock_set (15) + back_outside (10) + north_littleroot (10)
+    assert reward == 40.0
+
+
+def test_north_littleroot_needs_clock_set():
+    tracker = MilestoneTracker(starter_milestones())
+    tracker.update(make_state(map_group=0, map_num=9, clock_set=False, y=0))
+    assert "north_littleroot" not in tracker.fired
+
+
+def test_north_littleroot_not_fired_south_of_threshold():
+    tracker = MilestoneTracker(starter_milestones())
+    tracker.update(make_state(map_group=0, map_num=9, clock_set=True, y=2))
+    assert "north_littleroot" not in tracker.fired
+
+
+def test_north_littleroot_needs_littleroot_map():
+    tracker = MilestoneTracker(starter_milestones())
+    tracker.update(make_state(map_group=0, map_num=10, clock_set=True, y=0))
+    assert "north_littleroot" not in tracker.fired
+
+
+def test_full_chain_sums_to_165():
     tracker = MilestoneTracker(starter_milestones())
     total = 0.0
     steps = (
@@ -105,6 +131,7 @@ def test_full_chain_sums_to_155():
         make_state(map_group=1, map_num=0),                   # enter_house +5
         make_state(map_group=1, map_num=0, clock_set=True),   # clock_set +15
         make_state(map_group=0, map_num=9, clock_set=True),   # back_outside +10
+        make_state(map_group=0, map_num=9, clock_set=True, y=1),  # north_littleroot +10
         make_state(map_group=0, map_num=16, clock_set=True),  # reach_route_101 +20
         make_state(map_group=0, map_num=16, clock_set=True, party_count=1),  # starter +100
     )
@@ -112,6 +139,6 @@ def test_full_chain_sums_to_155():
     for state in steps:
         reward, terminated = tracker.update(state)
         total += reward
-    assert total == 155.0
+    assert total == 165.0
     assert terminated is True
-    assert len(tracker.fired) == 6
+    assert len(tracker.fired) == 7
