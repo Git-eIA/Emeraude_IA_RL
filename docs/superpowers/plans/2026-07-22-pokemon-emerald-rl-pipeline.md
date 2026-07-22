@@ -12,6 +12,17 @@
 
 **ROM policy:** The user's Emerald ROM is NEVER committed. Tests needing a real ROM read the `POKEMON_EMERALD_ROM` env var and skip when unset. Savestates in `states/` are gitignored too.
 
+**ROM version:** The user's ROM is **French Emerald (game code BPEF)** at
+`roms/pokemon_emerald_fr.gba` (gitignored). All RAM addresses documented for
+the US version (BPEE) MUST be verified against the French symbol tables before
+use — pokebot-gen3 ships per-language symbol files (`modules/data/symbols/` in
+https://github.com/40Cakes/pokebot-gen3): look up `gSaveBlock1Ptr` and
+`gPlayerPartyCount` for BPEF. The SaveBlock1 struct offsets (pos, location,
+flags) come from the game's own code and are identical across languages; only
+the absolute EWRAM/IWRAM symbol addresses may shift. Use
+`POKEMON_EMERALD_ROM=roms/pokemon_emerald_fr.gba` everywhere the plan says
+`<user-rom-path>`.
+
 ---
 
 ## File Structure
@@ -389,8 +400,8 @@ def test_rom_header_readable(rom_path):
     from emulator.gba import GbaEmulator
 
     emu = GbaEmulator(rom_path)
-    # Game code lives at 0x080000AC in the cartridge header; Emerald US = BPEE
-    assert emu.read_bytes(0x080000AC, 4) == b"BPEE"
+    # Game code lives at 0x080000AC in the cartridge header; Emerald FR = BPEF
+    assert emu.read_bytes(0x080000AC, 4) == b"BPEF"
 
 
 @requires_rom
@@ -669,10 +680,14 @@ git commit -m "feat: scripted-run and interactive-play tools (M1 acceptance)"
 - Create: `env/game_state.py`
 - Test: `tests/test_game_state.py`
 
-Addresses come from the pret/pokeemerald decompilation and the pokebot-gen3
-project (Emerald US, BPEE). Before implementing, cross-check the constants
-below against https://github.com/40Cakes/pokebot-gen3 (its `modules/memory.py`
-and data files) — if any differ, trust pokebot-gen3 and fix the constants.
+Addresses below come from the pret/pokeemerald decompilation (Emerald US,
+BPEE). **The target ROM is French (BPEF)** — before implementing, look up
+`gSaveBlock1Ptr` and `gPlayerPartyCount` in pokebot-gen3's BPEF symbol table
+(https://github.com/40Cakes/pokebot-gen3, `modules/data/symbols/`) and use
+those values for `SAVE_BLOCK1_PTR` / `PARTY_COUNT_ADDR`. Struct offsets
+(_POS_OFFSET, _LOCATION_OFFSET, _FLAGS_OFFSET, badge flag IDs) are identical
+across languages. The real-ROM integration test (Step 5) is the ultimate
+check: wrong addresses ⇒ absurd party_count/coords.
 
 Design: parsing is pure — `EmeraldReader` takes a `read(address, length) ->
 bytes` callable. Unit tests inject a fake reader; no ROM needed.
