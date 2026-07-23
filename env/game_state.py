@@ -135,8 +135,10 @@ BATTLE_MON_SIZE = 0x58
 # Per-BattlePokemon offsets (pret/pokeemerald, region-stable).
 _BM_SPECIES = 0x00
 _BM_MOVES = 0x0C
-_BM_TYPE1 = 0x20
-_BM_TYPE2 = 0x21
+# 0x20 is `ability`; type1/type2 follow it (confirmed empirically: reads at
+# 0x20 returned ability IDs like 66=Blaze/53=Pickup, out of the 0..17 range).
+_BM_TYPE1 = 0x21
+_BM_TYPE2 = 0x22
 _BM_PP = 0x24
 _BM_HP = 0x28
 _BM_LEVEL = 0x2A

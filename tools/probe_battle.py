@@ -61,8 +61,8 @@ def main() -> None:
         hp = _u16(read, addr + 0x28)
         max_hp = _u16(read, addr + 0x2C)
         level = _u8(read, addr + 0x2A)
-        t1 = _u8(read, addr + 0x20)
-        t2 = _u8(read, addr + 0x21)
+        t1 = _u8(read, addr + 0x21)
+        t2 = _u8(read, addr + 0x22)
         moves = [_u16(read, addr + 0x0C + 2 * i) for i in range(4)]
         pp = [_u8(read, addr + 0x24 + i) for i in range(4)]
         who = "player" if slot == 0 else "opponent"

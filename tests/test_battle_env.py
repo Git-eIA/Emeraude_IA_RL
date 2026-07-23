@@ -41,7 +41,7 @@ class _ScriptedBattleEmulator:
         for i in range(4):
             buf[0x0C + 2 * i : 0x0C + 2 * i + 2] = _u16(1 if i == 0 else 0)
             buf[0x24 + i] = 10 if i == 0 else 0
-        buf[0x20], buf[0x21] = types
+        buf[0x21], buf[0x22] = types
         buf[0x28:0x2A] = _u16(hp)
         buf[0x2A] = level
         buf[0x2C:0x2E] = _u16(max_hp)

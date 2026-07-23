@@ -32,8 +32,8 @@ def _mon_bytes(
     buf[0x00:0x02] = _u16(species)
     for i, m in enumerate(moves):
         buf[0x0C + 2 * i : 0x0C + 2 * i + 2] = _u16(m)
-    buf[0x20] = types[0]
-    buf[0x21] = types[1]
+    buf[0x21] = types[0]
+    buf[0x22] = types[1]
     for i, p in enumerate(pp):
         buf[0x24 + i] = p
     buf[0x28:0x2A] = _u16(hp)
