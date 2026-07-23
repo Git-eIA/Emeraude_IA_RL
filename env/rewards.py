@@ -1,14 +1,17 @@
-"""Reward shaping: +1 for never-visited tiles, small penalty for revisits."""
+"""Reward shaping: small bonus for never-visited tiles, small penalty for revisits."""
 from __future__ import annotations
 
 from env.game_state import PlayerState
 
 # Small enough that milestones dominate; large enough to make loitering lose.
 REVISIT_PENALTY = -0.01
+# Halved from 1.0 after the 10.5M run: at +1/tile the agent re-learned to farm
+# tiles instead of following the milestone chain (M6.2 regression).
+NEW_TILE_REWARD = 0.5
 
 
 class ExplorationTracker:
-    """+1.0 the first time each (map_group, map_num, x, y) tile is seen; REVISIT_PENALTY after."""
+    """NEW_TILE_REWARD the first time each (map_group, map_num, x, y) tile is seen; REVISIT_PENALTY after."""
 
     def __init__(self) -> None:
         self._visited: set[tuple[int, int, int, int]] = set()
@@ -27,7 +30,7 @@ class ExplorationTracker:
         if tile in self._visited:
             return REVISIT_PENALTY
         self._visited.add(tile)
-        return 1.0
+        return NEW_TILE_REWARD
 
 
 REWARD_PER_LEVEL = 5.0

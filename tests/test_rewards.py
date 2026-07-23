@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from env.game_state import PlayerState
-from env.rewards import REVISIT_PENALTY, REWARD_PER_LEVEL, ExplorationTracker, LevelRewardTracker
+from env.rewards import (
+    NEW_TILE_REWARD,
+    REVISIT_PENALTY,
+    REWARD_PER_LEVEL,
+    ExplorationTracker,
+    LevelRewardTracker,
+)
 
 
 def state(x: int, y: int, group: int = 0, num: int = 0) -> PlayerState:
@@ -10,15 +16,20 @@ def state(x: int, y: int, group: int = 0, num: int = 0) -> PlayerState:
 
 def test_new_tile_rewards_once():
     tracker = ExplorationTracker()
-    assert tracker.update(state(1, 1)) == 1.0
+    assert tracker.update(state(1, 1)) == NEW_TILE_REWARD
     assert tracker.update(state(1, 1)) == REVISIT_PENALTY
-    assert tracker.update(state(2, 1)) == 1.0
+    assert tracker.update(state(2, 1)) == NEW_TILE_REWARD
+
+
+def test_new_tile_reward_stays_below_smallest_milestone():
+    # Anti-farming: a full episode of fresh tiles must not outweigh the chain.
+    assert 0.0 < NEW_TILE_REWARD <= 0.5
 
 
 def test_same_coords_on_different_map_are_distinct():
     tracker = ExplorationTracker()
-    assert tracker.update(state(1, 1, group=0, num=0)) == 1.0
-    assert tracker.update(state(1, 1, group=0, num=1)) == 1.0
+    assert tracker.update(state(1, 1, group=0, num=0)) == NEW_TILE_REWARD
+    assert tracker.update(state(1, 1, group=0, num=1)) == NEW_TILE_REWARD
 
 
 def test_none_state_gives_zero():
@@ -39,7 +50,7 @@ def test_reset_clears_history():
     tracker.update(state(1, 1))
     tracker.reset()
     assert tracker.visited_count == 0
-    assert tracker.update(state(1, 1)) == 1.0
+    assert tracker.update(state(1, 1)) == NEW_TILE_REWARD
 
 
 def test_revisit_penalty_is_small_and_negative():
