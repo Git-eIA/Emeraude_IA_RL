@@ -121,3 +121,106 @@ class EmeraldReader:
     def _badge_count(self, sb1: int) -> int:
         # FLAG_BADGE01_GET..FLAG_BADGE08_GET are contiguous from _FIRST_BADGE_FLAG.
         return sum(self._flag(sb1, _FIRST_BADGE_FLAG + i) for i in range(8))
+
+
+# --- Battle RAM (M7 Fighter) ---
+# Base addresses confirmed by tools/probe_battle.py on BPEF (Task 1).
+# TODO(probe): replace with the values printed by the probe if they differ.
+GBATTLE_MONS_ADDR = 0x02024084
+GBATTLE_TYPE_FLAGS_ADDR = 0x02022FEC
+GBATTLE_OUTCOME_ADDR = 0x0202433A
+GMOVE_RESULT_FLAGS_ADDR = 0x0202427C
+BATTLE_MON_SIZE = 0x58
+
+# Per-BattlePokemon offsets (pret/pokeemerald, region-stable).
+_BM_SPECIES = 0x00
+_BM_MOVES = 0x0C
+_BM_TYPE1 = 0x20
+_BM_TYPE2 = 0x21
+_BM_PP = 0x24
+_BM_HP = 0x28
+_BM_LEVEL = 0x2A
+_BM_MAXHP = 0x2C
+
+_MOVE_RESULT_SUPER_EFFECTIVE = 0x0008
+
+
+@dataclass(frozen=True)
+class MoveInfo:
+    move_id: int
+    pp: int
+
+
+@dataclass(frozen=True)
+class BattleState:
+    in_battle: bool
+    my_hp: int
+    my_max_hp: int
+    my_level: int
+    my_types: tuple[int, int]
+    my_moves: tuple[MoveInfo, MoveInfo, MoveInfo, MoveInfo]
+    opp_hp: int
+    opp_max_hp: int
+    opp_level: int
+    opp_types: tuple[int, int]
+    opp_species: int
+    outcome: int
+    last_move_super_effective: bool
+
+
+class BattleReader:
+    """Parses battle RAM into an immutable BattleState.
+
+    Takes the same read_bytes(addr, size) callable as EmeraldReader so it is
+    testable with crafted bytes and needs no ROM.
+    """
+
+    def __init__(self, read_bytes: ReadFn) -> None:
+        self._read = read_bytes
+
+    def battle_state(self) -> BattleState:
+        flags = self._u16(GBATTLE_TYPE_FLAGS_ADDR)
+        my = self._read_mon(GBATTLE_MONS_ADDR)
+        opp = self._read_mon(GBATTLE_MONS_ADDR + BATTLE_MON_SIZE)
+        # Cross-check: in battle iff flags set AND opponent has a real max HP.
+        in_battle = flags != 0 and opp["max_hp"] > 0
+        move_result = self._u16(GMOVE_RESULT_FLAGS_ADDR)
+        return BattleState(
+            in_battle=in_battle,
+            my_hp=my["hp"],
+            my_max_hp=my["max_hp"],
+            my_level=my["level"],
+            my_types=my["types"],
+            my_moves=my["moves"],
+            opp_hp=opp["hp"],
+            opp_max_hp=opp["max_hp"],
+            opp_level=opp["level"],
+            opp_types=opp["types"],
+            opp_species=opp["species"],
+            outcome=self._u8(GBATTLE_OUTCOME_ADDR),
+            last_move_super_effective=bool(move_result & _MOVE_RESULT_SUPER_EFFECTIVE),
+        )
+
+    def _read_mon(self, base: int) -> dict:
+        moves = tuple(
+            MoveInfo(
+                move_id=self._u16(base + _BM_MOVES + 2 * i),
+                pp=self._u8(base + _BM_PP + i),
+            )
+            for i in range(4)
+        )
+        return {
+            "species": self._u16(base + _BM_SPECIES),
+            "hp": self._u16(base + _BM_HP),
+            "max_hp": self._u16(base + _BM_MAXHP),
+            "level": self._u8(base + _BM_LEVEL),
+            "types": (self._u8(base + _BM_TYPE1), self._u8(base + _BM_TYPE2)),
+            "moves": moves,
+        }
+
+    def _u8(self, addr: int) -> int:
+        return self._read(addr, 1)[0]
+
+    def _u16(self, addr: int) -> int:
+        b = self._read(addr, 2)
+        return b[0] | (b[1] << 8)
