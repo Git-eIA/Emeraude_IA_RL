@@ -35,9 +35,10 @@ def build_memory(
     badge_bits: int,
     party_count: int,
     clock_set: bool = False,
+    town_state: int = 0,
 ) -> dict[int, bytes]:
     sb1 = 0x02025A00  # arbitrary but valid EWRAM address for the fake
-    save_block1 = bytearray(0x1400)  # must fit flags region up to 0x137E
+    save_block1 = bytearray(0x1600)  # must fit the vars array up to 0x159C
     save_block1[0:2] = x.to_bytes(2, "little", signed=True)
     save_block1[2:4] = y.to_bytes(2, "little", signed=True)
     save_block1[4] = map_group
@@ -48,6 +49,8 @@ def build_memory(
     if clock_set:
         # FLAG_SET_WALL_CLOCK = 0x51 -> byte 10, bit 1 of the flags array
         save_block1[0x1270 + 10] |= 0b10
+    # VAR_LITTLEROOT_TOWN_STATE = 0x4050 -> vars index 0x50, u16 LE
+    save_block1[0x139C + 0xA0 : 0x139C + 0xA2] = town_state.to_bytes(2, "little")
     return {
         SAVE_BLOCK1_PTR: sb1.to_bytes(4, "little"),
         sb1: bytes(save_block1),
@@ -135,6 +138,24 @@ def test_clock_not_set_by_default():
     assert state.clock_set is False
 
 
+def test_town_state_read_into_state():
+    memory = build_memory(
+        x=0, y=0, map_group=0, map_num=9, badge_bits=0, party_count=0, town_state=1
+    )
+    reader = EmeraldReader(make_fake_read(memory))
+    state = reader.player_state()
+    assert state is not None
+    assert state.town_state == 1
+
+
+def test_town_state_zero_by_default():
+    memory = build_memory(x=0, y=0, map_group=0, map_num=9, badge_bits=0, party_count=0)
+    reader = EmeraldReader(make_fake_read(memory))
+    state = reader.player_state()
+    assert state is not None
+    assert state.town_state == 0
+
+
 def test_party_levels_empty():
     memory = build_memory(x=0, y=0, map_group=0, map_num=0, badge_bits=0, party_count=0)
     reader = EmeraldReader(make_fake_read(memory))
@@ -174,5 +195,6 @@ def test_real_rom_state_after_initial_savestate(rom_path):
     assert state.party_count == 0
     assert state.badges == 0
     assert state.clock_set is False
+    assert state.town_state == 0
     assert reader.party_levels() == []
     assert reader.read_flag(FLAG_SET_WALL_CLOCK) is False

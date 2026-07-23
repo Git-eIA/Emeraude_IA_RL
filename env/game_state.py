@@ -40,6 +40,14 @@ _FIRST_BADGE_FLAG = 0x867  # FLAG_BADGE01_GET .. FLAG_BADGE08_GET are contiguous
 # The intro is complete only once the bedroom wall clock has been set.
 FLAG_SET_WALL_CLOCK = 0x51
 
+# Event vars array inside SaveBlock1. Offset verified empirically on BPEF
+# (2026-07-23 probe): VAR_LITTLEROOT_INTRO_STATE stepped 0->7 during the intro.
+_VARS_OFFSET = 0x139C  # offsetof(struct SaveBlock1, vars)
+_VARS_START = 0x4000  # first var id (pret include/constants/vars.h)
+# The twin guarding Littleroot's north exit steps aside once this var is >= 1
+# (set by the Pokeball cutscene in the rival's bedroom).
+VAR_LITTLEROOT_TOWN_STATE = 0x4050
+
 _EWRAM_START = 0x02000000
 _EWRAM_END = 0x02040000
 
@@ -53,6 +61,7 @@ class PlayerState:
     badges: int
     party_count: int
     clock_set: bool = False
+    town_state: int = 0
 
 
 class EmeraldReader:
@@ -76,6 +85,7 @@ class EmeraldReader:
             badges=self._badge_count(sb1),
             party_count=self._read(PARTY_COUNT_ADDR, 1)[0],
             clock_set=self._flag(sb1, FLAG_SET_WALL_CLOCK),
+            town_state=self._var(sb1, VAR_LITTLEROOT_TOWN_STATE),
         )
 
     def read_flag(self, flag_id: int) -> bool:
@@ -103,6 +113,10 @@ class EmeraldReader:
         byte_index, bit_index = divmod(flag_id, 8)
         raw = self._read(sb1 + _FLAGS_OFFSET + byte_index, 1)[0]
         return bool(raw >> bit_index & 1)
+
+    def _var(self, sb1: int, var_id: int) -> int:
+        raw = self._read(sb1 + _VARS_OFFSET + (var_id - _VARS_START) * 2, 2)
+        return int.from_bytes(raw, "little")
 
     def _badge_count(self, sb1: int) -> int:
         # FLAG_BADGE01_GET..FLAG_BADGE08_GET are contiguous from _FIRST_BADGE_FLAG.

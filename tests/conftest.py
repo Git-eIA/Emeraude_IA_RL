@@ -28,6 +28,7 @@ class FakeEmulator:
         self.map_group = 0
         self.map_num = 10  # Oldale: neutral map, fires no milestone
         self.clock_set = False
+        self.town_state = 0
         self.party_count = 0
         self.party_levels: list[int] = []
         self.loaded_states: list[bytes] = []
@@ -64,12 +65,16 @@ class FakeEmulator:
         # Flags byte 10 holds FLAG_SET_WALL_CLOCK (0x51) at bit 1.
         if address == self._sb1 + 0x1270 + 10:
             return (b"\x02" if self.clock_set else b"\x00") * length
+        # VAR_LITTLEROOT_TOWN_STATE (0x4050) -> vars offset 0x139C + 0x50 * 2.
+        if address == self._sb1 + 0x139C + 0xA0:
+            return self.town_state.to_bytes(2, "little")[:length]
         return b"\x00" * length
 
     def load_state(self, state: bytes) -> None:
         self.loaded_states.append(state)
         self.x, self.y = 5, 5
         self.clock_set = False
+        self.town_state = 0
         self.party_count = 0
         self.party_levels = []
 
