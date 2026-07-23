@@ -71,6 +71,41 @@ y=0 once, never crossed). Both reserve levers are now applied:
 Training resumes from the 3M checkpoint (intro knowledge kept); reward-scheme
 change does not require a from-scratch retrain.
 
+## Addendum M6.2 (2026-07-23, approved) — meet_rival unlock chain
+
+After the M6.1 run (4.5M steps) the agent reaches the north edge (4/5) but
+`reach_route_101` still never fires: **the game itself blocks the exit**. A twin
+NPC pushes the player back while `VAR_LITTLEROOT_TOWN_STATE == 0`. The unlock
+(verified empirically on BPEF with a scripted probe, 2026-07-23) is: enter the
+rival's house (door (14,8)), go upstairs, press A facing the Pokéball at (5,4)
+→ cutscene sets `VAR_LITTLEROOT_TOWN_STATE = 1` → the twin steps aside
+(she moves to (10,1); passage is via x=11, where (11,1) triggers a short
+dialog setting the var to 2).
+
+### Event vars on BPEF (validated by probe)
+
+Vars live at `SaveBlock1 + 0x139C`, indexed `(var_id - 0x4000) * 2`, u16 LE.
+`VAR_LITTLEROOT_INTRO_STATE (0x4092)` stepped 0→7 during the intro at this
+offset, confirming it for the French ROM. `VAR_LITTLEROOT_TOWN_STATE = 0x4050`.
+
+### Design (user-approved option B — guided sub-chain)
+
+1. **`PlayerState` gains `town_state: int = 0`**, read via a new
+   `EmeraldReader._var()` helper (same pattern as `clock_set`/`_flag`).
+2. **Three milestones** inserted between `back_outside` and `north_littleroot`:
+
+| Name | Condition | Points |
+|------|-----------|--------|
+| `enter_rival_house` | `clock_set` AND map == `(1, 2)` (May's house 1F) | +5 |
+| `rival_upstairs` | `clock_set` AND map == `(1, 3)` (May's house 2F) | +5 |
+| `meet_rival` | `town_state >= 1` | +15 |
+
+Chain total: 165 → **190 points**, 10 milestones. `clock_set` gates the two
+house milestones so they only pay after the intro (the houses are enterable
+before). FakeEmulator gains a `town_state` attribute; `build_memory` grows its
+SaveBlock1 buffer to `0x1600` to cover the vars array.
+3. **Resume training from the 4.5M checkpoint** (reward-scheme change only).
+
 ## Testing
 
 - Unit: flag reading (`build_memory` gains `clock_set` param), each new
