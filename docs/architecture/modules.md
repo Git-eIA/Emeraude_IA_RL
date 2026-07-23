@@ -5,7 +5,7 @@
 | emulator/buttons.py | GBA key bitmask constants | KEY_A..KEY_L | — |
 | emulator/gba.py | Headless mGBA wrapper | GbaEmulator | libmgba-py, buttons |
 | env/game_state.py | Emerald RAM parsing | EmeraldReader (player_state, read_flag, party_levels), PlayerState (includes clock_set bool, town_state int), FLAG_SET_WALL_CLOCK constant, reads event vars (_VARS_OFFSET = 0x139C, VAR_LITTLEROOT_TOWN_STATE = 0x4050) | — (reader injected) |
-| env/milestones.py | One-shot intro milestone chain (exit_truck, enter_house, clock_set, back_outside, north_littleroot, reach_route_101, starter_obtained — 165 pts total); constants LITTLEROOT, PLAYER_HOUSES_1F, ROUTE_101, NORTH_LITTLEROOT_MAX_Y | Milestone, MilestoneTracker, starter_milestones | game_state |
+| env/milestones.py | One-shot intro milestone chain (10 milestones spanning exit_truck → enter_house → clock_set → back_outside → enter_rival_house → rival_upstairs → meet_rival → north_littleroot → reach_route_101 → starter_obtained; 190 pts total); constants LITTLEROOT, PLAYER_HOUSES_1F, ROUTE_101, MAYS_HOUSE_1F, MAYS_HOUSE_2F, NORTH_LITTLEROOT_MAX_Y | Milestone, MilestoneTracker, starter_milestones | game_state |
 | env/rewards.py | Exploration reward (+1.0 new tile, REVISIT_PENALTY=-0.01 already-visited) | REVISIT_PENALTY, ExplorationTracker, REWARD_PER_LEVEL, LevelRewardTracker | game_state |
 | env/pokemon_env.py | Gymnasium env | PokemonEmeraldEnv | game_state, rewards, milestones |
 | agent/train.py | PPO training entrypoint | main() | env, sb3, torch |

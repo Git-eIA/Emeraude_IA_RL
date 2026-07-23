@@ -17,6 +17,12 @@ ROUTE_101 = (0, 16)
 # Brendan's and May's house ground floors; the player spawns in one of them.
 PLAYER_HOUSES_1F = frozenset({(1, 0), (1, 2)})
 
+# The rival's (May's) house. The Pokeball cutscene in the upstairs bedroom sets
+# VAR_LITTLEROOT_TOWN_STATE to 1, which makes the twin guarding the Route 101
+# exit step aside — without it the agent is pushed back at the north edge.
+MAYS_HOUSE_1F = (1, 2)
+MAYS_HOUSE_2F = (1, 3)
+
 # Littleroot's exit to Route 101 is at the top edge; this milestone pays for
 # committing northward through the boundary.
 NORTH_LITTLEROOT_MAX_Y = 1
@@ -31,9 +37,9 @@ class Milestone:
 
 
 def starter_milestones() -> tuple[Milestone, ...]:
-    """M6 chain: play the scripted intro, leave town northward, obtain the starter.
+    """M6 chain: intro, rival's Pokeball cutscene, leave town north, get the starter.
 
-    Total reward: 165 points across 7 milestones.
+    Total reward: 190 points across 10 milestones.
     """
     return (
         Milestone(
@@ -55,6 +61,21 @@ def starter_milestones() -> tuple[Milestone, ...]:
             "back_outside",
             lambda s: s.clock_set and (s.map_group, s.map_num) == LITTLEROOT,
             10.0,
+        ),
+        Milestone(
+            "enter_rival_house",
+            lambda s: s.clock_set and (s.map_group, s.map_num) == MAYS_HOUSE_1F,
+            5.0,
+        ),
+        Milestone(
+            "rival_upstairs",
+            lambda s: s.clock_set and (s.map_group, s.map_num) == MAYS_HOUSE_2F,
+            5.0,
+        ),
+        Milestone(
+            "meet_rival",
+            lambda s: s.town_state >= 1,
+            15.0,
         ),
         Milestone(
             "north_littleroot",

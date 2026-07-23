@@ -96,7 +96,7 @@ def test_intro_chain_pays_each_milestone_once():
     assert reward >= 5.0
     assert "exit_truck" in info["milestones"]
 
-    emu.map_group, emu.map_num = 1, 2  # enter May's house
+    emu.map_group, emu.map_num = 1, 0  # enter the player's house (Brendan's)
     _, reward, _, _, info = env.step(0)
     assert reward >= 5.0
     assert "enter_house" in info["milestones"]
@@ -112,6 +112,22 @@ def test_intro_chain_pays_each_milestone_once():
     assert "back_outside" in info["milestones"]
     assert terminated is False
 
+    emu.map_group, emu.map_num = 1, 2  # into the rival's house (May's), clock now set
+    _, reward, _, _, info = env.step(0)
+    assert reward >= 4.9  # milestone +5, but revisit penalty -0.01
+    assert "enter_rival_house" in info["milestones"]
+
+    emu.map_group, emu.map_num = 1, 3  # upstairs to the rival's bedroom
+    _, reward, _, _, info = env.step(0)
+    assert reward >= 5.0
+    assert "rival_upstairs" in info["milestones"]
+
+    emu.town_state = 1  # Pokeball cutscene watched: exit unlocked
+    _, reward, _, _, info = env.step(0)
+    assert reward >= 14.9  # milestone +15, but revisit penalty -0.01
+    assert "meet_rival" in info["milestones"]
+
+    emu.map_group, emu.map_num = 0, 9
     emu.y = 1  # walk up to the northern exit
     _, reward, _, _, info = env.step(0)
     assert reward >= 10.0

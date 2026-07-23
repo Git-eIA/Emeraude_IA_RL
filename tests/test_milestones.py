@@ -6,7 +6,7 @@ from env.milestones import Milestone, MilestoneTracker, starter_milestones
 
 def make_state(**overrides) -> PlayerState:
     # Neutral defaults: Oldale (0, 10) at y=5 fires no milestone.
-    defaults = dict(x=0, y=5, map_group=0, map_num=10, badges=0, party_count=0, clock_set=False)
+    defaults = dict(x=0, y=5, map_group=0, map_num=10, badges=0, party_count=0, clock_set=False, town_state=0)
     return PlayerState(**{**defaults, **overrides})
 
 
@@ -122,7 +122,49 @@ def test_north_littleroot_needs_littleroot_map():
     assert "north_littleroot" not in tracker.fired
 
 
-def test_full_chain_sums_to_165():
+def test_enter_rival_house_requires_clock():
+    tracker = MilestoneTracker(starter_milestones())
+    tracker.update(make_state(map_group=1, map_num=2, clock_set=False))
+    assert "enter_rival_house" not in tracker.fired
+    assert "enter_house" in tracker.fired  # pre-intro visit still pays enter_house
+
+
+def test_enter_rival_house_fires_with_clock():
+    tracker = MilestoneTracker(starter_milestones())
+    reward, _ = tracker.update(make_state(map_group=1, map_num=2, clock_set=True))
+    assert "enter_rival_house" in tracker.fired
+    # enter_house (5) + clock_set (15) + enter_rival_house (5) on a fresh tracker
+    assert reward == 25.0
+
+
+def test_rival_upstairs_fires_with_clock():
+    tracker = MilestoneTracker(starter_milestones())
+    reward, _ = tracker.update(make_state(map_group=1, map_num=3, clock_set=True))
+    assert "rival_upstairs" in tracker.fired
+    # clock_set (15) + rival_upstairs (5); (1,3) is not in PLAYER_HOUSES_1F
+    assert reward == 20.0
+
+
+def test_rival_upstairs_requires_clock():
+    tracker = MilestoneTracker(starter_milestones())
+    tracker.update(make_state(map_group=1, map_num=3, clock_set=False))
+    assert "rival_upstairs" not in tracker.fired
+
+
+def test_meet_rival_fires_on_town_state():
+    tracker = MilestoneTracker(starter_milestones())
+    reward, _ = tracker.update(make_state(town_state=1))
+    assert "meet_rival" in tracker.fired
+    assert reward == 15.0
+
+
+def test_meet_rival_not_fired_at_zero():
+    tracker = MilestoneTracker(starter_milestones())
+    tracker.update(make_state(town_state=0))
+    assert "meet_rival" not in tracker.fired
+
+
+def test_full_chain_sums_to_190():
     tracker = MilestoneTracker(starter_milestones())
     total = 0.0
     steps = (
@@ -131,14 +173,17 @@ def test_full_chain_sums_to_165():
         make_state(map_group=1, map_num=0),                   # enter_house +5
         make_state(map_group=1, map_num=0, clock_set=True),   # clock_set +15
         make_state(map_group=0, map_num=9, clock_set=True),   # back_outside +10
-        make_state(map_group=0, map_num=9, clock_set=True, y=1),  # north_littleroot +10
-        make_state(map_group=0, map_num=16, clock_set=True),  # reach_route_101 +20
-        make_state(map_group=0, map_num=16, clock_set=True, party_count=1),  # starter +100
+        make_state(map_group=1, map_num=2, clock_set=True),   # enter_rival_house +5
+        make_state(map_group=1, map_num=3, clock_set=True),   # rival_upstairs +5
+        make_state(map_group=1, map_num=3, clock_set=True, town_state=1),  # meet_rival +15
+        make_state(map_group=0, map_num=9, clock_set=True, town_state=1, y=1),  # north +10
+        make_state(map_group=0, map_num=16, clock_set=True, town_state=2),  # route_101 +20
+        make_state(map_group=0, map_num=16, clock_set=True, town_state=2, party_count=1),  # starter +100
     )
     terminated = False
     for state in steps:
         reward, terminated = tracker.update(state)
         total += reward
-    assert total == 165.0
+    assert total == 190.0
     assert terminated is True
-    assert len(tracker.fired) == 7
+    assert len(tracker.fired) == 10
