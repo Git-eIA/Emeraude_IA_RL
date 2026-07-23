@@ -12,7 +12,7 @@ from PIL import Image
 from emulator import buttons
 from env.game_state import EmeraldReader, PlayerState
 from env.milestones import MilestoneTracker, starter_milestones
-from env.rewards import ExplorationTracker, LevelRewardTracker
+from env.rewards import TIME_PENALTY, ExplorationTracker, LevelRewardTracker
 
 FRAME_SIZE = (84, 84)  # (width, height) after downscale
 FRAME_STACK = 3
@@ -82,6 +82,7 @@ class PokemonEmeraldEnv(gym.Env):
         reward = self._tracker.update(state)
         milestone_reward, terminated = self._milestones.update(state)
         reward += milestone_reward + self._levels.update(self._reader.party_levels())
+        reward += TIME_PENALTY
         truncated = not terminated and self._step_count >= self._max_steps
         return self._observation(), reward, terminated, truncated, self._info(state)
 

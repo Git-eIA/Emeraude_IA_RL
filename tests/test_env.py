@@ -4,7 +4,7 @@ import numpy as np
 from gymnasium.utils.env_checker import check_env
 
 from env.pokemon_env import OBS_SHAPE, PokemonEmeraldEnv
-from env.rewards import REVISIT_PENALTY
+from env.rewards import REVISIT_PENALTY, TIME_PENALTY
 from tests.conftest import FakeEmulator
 
 
@@ -32,13 +32,18 @@ def test_moving_to_new_tile_gives_positive_reward():
     assert reward > 0.0
 
 
-def test_staying_put_pays_revisit_penalty_after_first_visit():
+def test_staying_put_pays_revisit_and_time_penalty():
     env = make_env()
     env.reset(seed=0)
     noop = env.ACTIONS.index("noop")
     env.step(noop)
     _, reward, _, _, _ = env.step(noop)
-    assert reward == REVISIT_PENALTY
+    assert reward == REVISIT_PENALTY + TIME_PENALTY
+
+
+def test_time_penalty_is_small_and_negative():
+    # Must stay well under the smallest milestone (+5) over a whole episode.
+    assert -0.1 < TIME_PENALTY < 0.0
 
 
 def test_truncates_at_max_steps():

@@ -8,6 +8,9 @@ REVISIT_PENALTY = -0.01
 # Halved from 1.0 after the 10.5M run: at +1/tile the agent re-learned to farm
 # tiles instead of following the milestone chain (M6.2 regression).
 NEW_TILE_REWARD = 0.5
+# Flat cost per step: makes the shortest path to the chain the best-paying
+# one (-82 max over a 4096-step episode vs +290 for the full chain).
+TIME_PENALTY = -0.02
 
 
 class ExplorationTracker:
