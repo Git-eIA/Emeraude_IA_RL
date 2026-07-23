@@ -101,12 +101,14 @@ class BattleEmeraldEnv(gym.Env):
         obs[1] = min(state.my_level / 100.0, 1.0)
         obs[2] = _frac(state.opp_hp, state.opp_max_hp)
         obs[3] = min(state.opp_level / 100.0, 1.0)
-        obs[4] = state.my_types[0] / NUM_TYPES
-        obs[5] = state.my_types[1] / NUM_TYPES
-        obs[6] = state.opp_types[0] / NUM_TYPES
-        obs[7] = state.opp_types[1] / NUM_TYPES
+        # Clamp type encodings: a RAM-transition garbage read can return a byte
+        # above the valid 0..17 range, which would break the Box [0, 1] bound.
+        obs[4] = min(state.my_types[0] / NUM_TYPES, 1.0)
+        obs[5] = min(state.my_types[1] / NUM_TYPES, 1.0)
+        obs[6] = min(state.opp_types[0] / NUM_TYPES, 1.0)
+        obs[7] = min(state.opp_types[1] / NUM_TYPES, 1.0)
         for i, move in enumerate(state.my_moves):
-            obs[8 + 2 * i] = self._move_type_fn(move.move_id) / NUM_TYPES
+            obs[8 + 2 * i] = min(self._move_type_fn(move.move_id) / NUM_TYPES, 1.0)
             obs[9 + 2 * i] = min(move.pp / MAX_PP, 1.0)
         obs[16] = 1.0 if state.in_battle else 0.0
         return obs
