@@ -153,14 +153,30 @@ def test_rival_upstairs_requires_clock():
 
 def test_meet_rival_fires_on_town_state():
     tracker = MilestoneTracker(starter_milestones())
-    reward, _ = tracker.update(make_state(town_state=1))
+    reward, _ = tracker.update(make_state(clock_set=True, town_state=1))
     assert "meet_rival" in tracker.fired
-    assert reward == 15.0
+    # clock_set (15) + meet_rival (15) on a fresh tracker
+    assert reward == 30.0
 
 
 def test_meet_rival_not_fired_at_zero():
     tracker = MilestoneTracker(starter_milestones())
-    tracker.update(make_state(town_state=0))
+    tracker.update(make_state(clock_set=True, town_state=0))
+    assert "meet_rival" not in tracker.fired
+
+
+def test_meet_rival_requires_clock():
+    # Guards against transient garbage reads during map warps: a one-step
+    # glitch was observed reading clock_set=False alongside town_state=40.
+    tracker = MilestoneTracker(starter_milestones())
+    tracker.update(make_state(clock_set=False, town_state=1))
+    assert "meet_rival" not in tracker.fired
+
+
+def test_meet_rival_rejects_out_of_range_town_state():
+    # Legit TOWN_STATE values are 1..4; 40 came from a glitched RAM read.
+    tracker = MilestoneTracker(starter_milestones())
+    tracker.update(make_state(clock_set=True, town_state=40))
     assert "meet_rival" not in tracker.fired
 
 

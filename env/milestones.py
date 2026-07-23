@@ -73,8 +73,10 @@ def starter_milestones() -> tuple[Milestone, ...]:
             5.0,
         ),
         Milestone(
+            # clock_set + the 1..4 range guard against transient garbage RAM
+            # reads during map warps (observed: town_state=40 for one step).
             "meet_rival",
-            lambda s: s.town_state >= 1,
+            lambda s: s.clock_set and 1 <= s.town_state <= 4,
             15.0,
         ),
         Milestone(
