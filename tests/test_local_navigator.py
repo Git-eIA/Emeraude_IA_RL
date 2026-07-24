@@ -4,6 +4,7 @@ from __future__ import annotations
 from env.local_navigator import (
     DIRECTIONS,
     WallMap,
+    plan_path,
     resolve_move,
 )
 from env.world_reader import WorldSnapshot
@@ -57,3 +58,48 @@ def test_wallmap_is_per_map() -> None:
     walls = WallMap()
     walls.block((0, 9), (2, 3), "up")
     assert walls.is_blocked((0, 16), (2, 3), "up") is False
+
+
+def test_path_start_equals_goal_is_empty() -> None:
+    walls = WallMap()
+    assert plan_path(walls, (0, 9), (2, 3), (2, 3)) == []
+
+
+def test_path_straight_line_no_walls() -> None:
+    walls = WallMap()
+    # (0,0) -> (2,0): two steps right
+    assert plan_path(walls, (0, 9), (0, 0), (2, 0)) == ["right", "right"]
+
+
+def test_path_detours_around_a_wall() -> None:
+    walls = WallMap()
+    # Block the direct step right from (0,0); A* must go around via down.
+    walls.block((0, 9), (0, 0), "right")
+    path = plan_path(walls, (0, 9), (0, 0), (1, 0))
+    assert path is not None
+    # any valid detour reaches the goal; verify by walking it
+    x, y = 0, 0
+    for d in path:
+        assert walls.is_blocked((0, 9), (x, y), d) is False
+        dx, dy = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}[d]
+        x, y = x + dx, y + dy
+    assert (x, y) == (1, 0)
+
+
+def test_path_none_when_fully_walled_in() -> None:
+    walls = WallMap()
+    for d in ("up", "down", "left", "right"):
+        walls.block((0, 9), (0, 0), d)
+    assert plan_path(walls, (0, 9), (0, 0), (5, 5)) is None
+
+
+def test_path_replans_after_new_wall_discovered() -> None:
+    walls = WallMap()
+    # first plan goes straight right
+    first = plan_path(walls, (0, 9), (0, 0), (2, 0))
+    assert first == ["right", "right"]
+    # discover a wall on the direct route, replan
+    walls.block((0, 9), (1, 0), "right")
+    second = plan_path(walls, (0, 9), (0, 0), (2, 0))
+    assert second is not None
+    assert second != first  # forced to detour

@@ -8,6 +8,8 @@ new wall is discovered. No tile-behavior probe, no emulator, no ROM. Emerald
 """
 from __future__ import annotations
 
+import heapq
+
 from env.world_reader import WorldSnapshot
 
 DIRECTIONS: tuple[str, ...] = ("up", "down", "left", "right")
@@ -66,3 +68,58 @@ class WallMap:
     ) -> bool:
         """True only if this edge was observed blocked; unknown edges are open."""
         return (cell, direction) in self._blocked.get(map_id, ())
+
+
+def _manhattan(a: tuple[int, int], b: tuple[int, int]) -> int:
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+def plan_path(
+    wallmap: WallMap,
+    map_id: tuple[int, int],
+    start: tuple[int, int],
+    goal: tuple[int, int],
+) -> list[str] | None:
+    """A* over the learned grid; list of directions from start to goal, or None.
+
+    Unknown edges are treated as walkable (optimistic). The infinite grid is
+    explored lazily; the Manhattan heuristic keeps A* focused toward the goal.
+    """
+    if start == goal:
+        return []
+
+    # Priority queue of (f_score, cell); came_from records (prev_cell, direction).
+    open_heap: list[tuple[int, tuple[int, int]]] = [(_manhattan(start, goal), start)]
+    came_from: dict[tuple[int, int], tuple[tuple[int, int], str]] = {}
+    g_score: dict[tuple[int, int], int] = {start: 0}
+
+    while open_heap:
+        _, current = heapq.heappop(open_heap)
+        if current == goal:
+            return _reconstruct(came_from, current)
+        for direction in DIRECTIONS:
+            if wallmap.is_blocked(map_id, current, direction):
+                continue
+            dx, dy = DELTAS[direction]
+            neighbour = (current[0] + dx, current[1] + dy)
+            tentative = g_score[current] + 1
+            if tentative < g_score.get(neighbour, 1 << 30):
+                g_score[neighbour] = tentative
+                came_from[neighbour] = (current, direction)
+                f_score = tentative + _manhattan(neighbour, goal)
+                heapq.heappush(open_heap, (f_score, neighbour))
+    return None
+
+
+def _reconstruct(
+    came_from: dict[tuple[int, int], tuple[tuple[int, int], str]],
+    goal: tuple[int, int],
+) -> list[str]:
+    directions: list[str] = []
+    cell = goal
+    while cell in came_from:
+        prev, direction = came_from[cell]
+        directions.append(direction)
+        cell = prev
+    directions.reverse()
+    return directions
