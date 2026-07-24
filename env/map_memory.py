@@ -41,10 +41,14 @@ class MapMemory:
         self._prev_map_id: tuple[int, int] | None = None
 
     def observe(self, snapshot: WorldSnapshot, event: WorldEvent) -> None:
-        self._ensure_node(snapshot.map_id)
+        node = self._ensure_node(snapshot.map_id)
         if self._prev_map_id is not None and self._prev_map_id != snapshot.map_id:
             self._edges.add((self._prev_map_id, snapshot.map_id))
         self._prev_map_id = snapshot.map_id
+        if event.healed:
+            node.labels.add("healing_spot")
+        if event.encounter_started:
+            node.labels.add("has_grass")
 
     def edges(self) -> set[tuple[tuple[int, int], tuple[int, int]]]:
         return set(self._edges)

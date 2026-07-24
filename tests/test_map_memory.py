@@ -70,3 +70,28 @@ def test_first_observation_adds_no_edge() -> None:
     mem = MapMemory()
     mem.observe(_snap((0, 9)), WorldEvent())
     assert mem.edges() == set()
+
+
+def test_heal_event_labels_the_current_place_as_healing_spot() -> None:
+    mem = MapMemory()
+    mem.observe(_snap((1, 5)), WorldEvent(healed=True))
+    assert "healing_spot" in mem.node((1, 5)).labels
+
+
+def test_encounter_event_labels_the_current_place_as_has_grass() -> None:
+    mem = MapMemory()
+    mem.observe(_snap((0, 16)), WorldEvent(encounter_started=True))
+    assert "has_grass" in mem.node((0, 16)).labels
+
+
+def test_labels_are_additive_across_observations() -> None:
+    mem = MapMemory()
+    mem.observe(_snap((0, 16)), WorldEvent(encounter_started=True))
+    mem.observe(_snap((0, 16)), WorldEvent(healed=True))
+    assert mem.node((0, 16)).labels == {"has_grass", "healing_spot"}
+
+
+def test_no_event_adds_no_label() -> None:
+    mem = MapMemory()
+    mem.observe(_snap((0, 16)), WorldEvent())
+    assert mem.node((0, 16)).labels == set()
