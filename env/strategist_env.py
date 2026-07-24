@@ -78,7 +78,3 @@ class StrategistEnv(gym.Env):
         self.steps = 0
         return self._obs(), {}
 
-    def step(
-        self, action: int
-    ) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
-        raise NotImplementedError("step() is implemented in Task 4")
