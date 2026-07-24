@@ -7,6 +7,7 @@ from pathlib import Path
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
+from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 from emulator.gba import GbaEmulator
@@ -45,17 +46,21 @@ def main() -> None:
     ap.add_argument("--timesteps", type=int, default=500_000)
     ap.add_argument("--states-dir", default="states/battles")
     ap.add_argument("--max-turns", type=int, default=64)
+    ap.add_argument("--n-steps", type=int, default=2048)  # steps per PPO rollout
     ap.add_argument("--resume", default=None)
     args = ap.parse_args()
 
     rom = os.environ["POKEMON_EMERALD_ROM"]
     states = load_states(args.states_dir)
 
-    def make_env():
+    def make_env() -> Monitor:
         emu = GbaEmulator(rom)
-        return BattleEmeraldEnv(
+        # Monitor records episode rewards/lengths so SB3 logs rollout/ep_rew_mean
+        # and rollout/ep_len_mean (needed to see if the Fighter is learning).
+        env = BattleEmeraldEnv(
             emu, states, make_move_type_fn(emu), max_turns=args.max_turns
         )
+        return Monitor(env)
 
     env = DummyVecEnv([make_env])
     ckpt = CheckpointCallback(
@@ -64,7 +69,9 @@ def main() -> None:
     if args.resume:
         model = PPO.load(args.resume, env=env, device="cpu")
     else:
-        model = PPO("MlpPolicy", env, verbose=1, device="cpu")
+        model = PPO(
+            "MlpPolicy", env, n_steps=args.n_steps, verbose=1, device="cpu"
+        )
     model.learn(total_timesteps=args.timesteps, callback=ckpt)
     model.save("checkpoints/fighter/ppo_fighter_final")
 
