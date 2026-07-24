@@ -12,7 +12,7 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from env.strategist_model import ADVANCE_HP_COST, grind, heal, win_prob  # noqa: F401 — used in Task 4 step()
+from env.strategist_model import ADVANCE_HP_COST, grind, heal, win_prob
 
 # Rising-difficulty curriculum of important battles (target levels). Synthetic
 # on purpose — v1 teaches the decision, not the real map.
@@ -63,7 +63,7 @@ class StrategistEnv(gym.Env):
                 np.clip(self.team_hp, 0.0, 1.0),
                 np.clip(cl / 100.0, 0.0, 1.0),
                 gap,
-                self.challenge_idx / len(CHALLENGE_LEVELS),
+                min(self.challenge_idx / len(CHALLENGE_LEVELS), 1.0),
             ],
             dtype=np.float32,
         )
@@ -77,4 +77,32 @@ class StrategistEnv(gym.Env):
         self.challenge_idx = 0
         self.steps = 0
         return self._obs(), {}
+
+    def step(
+        self, action: int
+    ) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
+        action = int(action)
+        self.steps += 1
+        terminated = False
+
+        if action == GRIND:
+            self.team_level, self.team_hp = grind(self.team_level, self.team_hp)
+            reward = STEP_GRIND
+        elif action == HEAL:
+            self.team_hp = heal()
+            reward = STEP_HEAL
+        else:  # ADVANCE
+            p = win_prob(self.team_level, self._challenge_level(), self.team_hp)
+            if self.np_random.random() < p:
+                reward = WIN_REWARD
+                self.team_hp = max(0.0, self.team_hp - ADVANCE_HP_COST)
+                self.challenge_idx += 1
+                if self.challenge_idx >= len(CHALLENGE_LEVELS):
+                    terminated = True   # cleared the whole curriculum
+            else:
+                reward = LOSS_REWARD
+                terminated = True       # lost an important battle
+
+        truncated = self.steps >= MAX_STEPS
+        return self._obs(), reward, terminated, truncated, {}
 

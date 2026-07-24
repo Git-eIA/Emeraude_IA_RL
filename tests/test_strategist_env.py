@@ -38,3 +38,76 @@ def test_observation_encodes_progression() -> None:
     assert abs(obs[3] - 0.5) < 1e-6
     assert obs[4] == 0.0
     assert len(CHALLENGE_LEVELS) == 5
+
+
+from env.strategist_env import ADVANCE, GRIND, HEAL, MAX_STEPS
+
+
+def test_grind_levels_up_costs_hp_and_time() -> None:
+    env = StrategistEnv()
+    env.reset(seed=0)
+    _, reward, term, trunc, _ = env.step(GRIND)
+    assert env.team_level == 6.0
+    assert abs(env.team_hp - 0.70) < 1e-9
+    assert reward == -1.0
+    assert term is False and trunc is False
+
+
+def test_heal_restores_hp_and_costs_time() -> None:
+    env = StrategistEnv()
+    env.reset(seed=0)
+    env.team_hp = 0.25
+    _, reward, term, trunc, _ = env.step(HEAL)
+    assert env.team_hp == 1.0
+    assert reward == -2.0
+    assert term is False and trunc is False
+
+
+def test_advance_win_pays_bonus_costs_hp_and_advances() -> None:
+    env = StrategistEnv()
+    env.reset(seed=0)
+    env.team_level = 200.0   # overwhelming -> win_prob == 1.0, deterministic win
+    hp_before = env.team_hp
+    _, reward, term, trunc, _ = env.step(ADVANCE)
+    assert reward == 20.0
+    assert env.challenge_idx == 1
+    assert abs(env.team_hp - (hp_before - 0.30)) < 1e-9
+    assert term is False and trunc is False
+
+
+def test_advance_loss_ends_the_episode() -> None:
+    env = StrategistEnv()
+    env.reset(seed=0)
+    env.team_level = -200.0  # hopeless -> win_prob == 0.0, deterministic loss
+    _, reward, term, trunc, _ = env.step(ADVANCE)
+    assert reward == -20.0
+    assert term is True
+
+
+def test_clearing_all_five_challenges_succeeds() -> None:
+    env = StrategistEnv()
+    env.reset(seed=0)
+    total = 0.0
+    terminated = False
+    for _ in range(5):
+        env.team_level = 200.0   # force a win each advance
+        _, reward, terminated, _, _ = env.step(ADVANCE)
+        total += reward
+        if terminated:
+            break
+    assert terminated is True
+    assert env.challenge_idx == 5
+    assert total == 100.0   # 5 wins * WIN_REWARD
+
+
+def test_truncates_at_step_budget() -> None:
+    env = StrategistEnv()
+    env.reset(seed=0)
+    terminated = truncated = False
+    steps = 0
+    while not (terminated or truncated):
+        _, _, terminated, truncated, _ = env.step(HEAL)  # never ends, only costs time
+        steps += 1
+    assert truncated is True
+    assert terminated is False
+    assert steps == MAX_STEPS
