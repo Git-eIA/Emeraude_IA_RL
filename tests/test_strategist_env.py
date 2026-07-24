@@ -4,7 +4,14 @@ from __future__ import annotations
 import numpy as np
 from gymnasium.utils.env_checker import check_env
 
-from env.strategist_env import CHALLENGE_LEVELS, StrategistEnv
+from env.strategist_env import (
+    ADVANCE,
+    CHALLENGE_LEVELS,
+    GRIND,
+    HEAL,
+    MAX_STEPS,
+    StrategistEnv,
+)
 
 
 def test_gym_api_compliance() -> None:
@@ -40,9 +47,6 @@ def test_observation_encodes_progression() -> None:
     assert len(CHALLENGE_LEVELS) == 5
 
 
-from env.strategist_env import ADVANCE, GRIND, HEAL, MAX_STEPS
-
-
 def test_grind_levels_up_costs_hp_and_time() -> None:
     env = StrategistEnv()
     env.reset(seed=0)
@@ -66,7 +70,7 @@ def test_heal_restores_hp_and_costs_time() -> None:
 def test_advance_win_pays_bonus_costs_hp_and_advances() -> None:
     env = StrategistEnv()
     env.reset(seed=0)
-    env.team_level = 200.0   # overwhelming -> win_prob == 1.0, deterministic win
+    env.team_level = 200.0   # overwhelming -> win_prob ~= 1 (1 - 1e-62), forced win
     hp_before = env.team_hp
     _, reward, term, trunc, _ = env.step(ADVANCE)
     assert reward == 20.0
@@ -78,7 +82,7 @@ def test_advance_win_pays_bonus_costs_hp_and_advances() -> None:
 def test_advance_loss_ends_the_episode() -> None:
     env = StrategistEnv()
     env.reset(seed=0)
-    env.team_level = -200.0  # hopeless -> win_prob == 0.0, deterministic loss
+    env.team_level = -200.0  # hopeless -> win_prob ~= 0 (1e-62), forced loss
     _, reward, term, trunc, _ = env.step(ADVANCE)
     assert reward == -20.0
     assert term is True
