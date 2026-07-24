@@ -21,11 +21,32 @@ from pathlib import Path
 
 from stable_baselines3 import PPO
 
+from emulator import buttons
 from emulator.gba import GbaEmulator
 from env.game_state import GBATTLE_TYPE_FLAGS_ADDR, BattleReader
 from env.pokemon_env import PokemonEmeraldEnv
 
 OUT_DIR = Path("states/battles")
+
+# Advance the fresh battle past its intro dialogue to the first action menu so
+# the saved state loads straight into a move choice (cheap env resets). Mirrors
+# BattleEmeraldEnv's press/advance choreography.
+_ADVANCE_PRESSES = 120
+
+
+def _press(emu, key: int) -> None:
+    emu.step(key, 6)
+    emu.step(0, 10)
+
+
+def _advance_to_menu(emu, reader: BattleReader) -> bool:
+    """Press A until the action menu appears; True if reached, False if stuck."""
+    for _ in range(_ADVANCE_PRESSES):
+        if reader.at_action_menu():
+            emu.step(0, 8)  # settle so the menu accepts input
+            return True
+        _press(emu, buttons.KEY_A)
+    return False
 
 
 def _u32(read, addr: int) -> int:
@@ -61,12 +82,15 @@ def main() -> None:
             max_flags = max(max_flags, _u32(env.emulator.read_bytes, GBATTLE_TYPE_FLAGS_ADDR))
             bs = reader.battle_state()
             if bs.in_battle:
+                reached = _advance_to_menu(env.emulator, reader)
+                bs = reader.battle_state()
                 path = OUT_DIR / f"{args.prefix}_{i}.state"
                 path.write_bytes(env.emulator.save_state())
                 captured += 1
                 hit = True
                 print(
-                    f"run {i}: BATTLE at step {step} -> {path}\n"
+                    f"run {i}: BATTLE at step {step} "
+                    f"(action menu {'reached' if reached else 'NOT reached'}) -> {path}\n"
                     f"   me lvl{bs.my_level} hp {bs.my_hp}/{bs.my_max_hp} types {bs.my_types}\n"
                     f"   opp species {bs.opp_species} lvl{bs.opp_level} "
                     f"hp {bs.opp_hp}/{bs.opp_max_hp} types {bs.opp_types}",
