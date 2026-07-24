@@ -57,6 +57,9 @@ def main() -> None:
 
     # Monitor records episode rewards/lengths so SB3 logs rollout/ep_rew_mean
     # and rollout/ep_len_mean (needed to see if the Strategist is learning).
+    # Create the checkpoint dir up front: model.save at the end would raise if
+    # a short run never hit the first save_freq checkpoint that creates it.
+    Path("checkpoints/strategist").mkdir(parents=True, exist_ok=True)
     env = DummyVecEnv([lambda: Monitor(StrategistEnv())])
     ckpt = CheckpointCallback(
         save_freq=50_000, save_path="checkpoints/strategist", name_prefix="ppo_strategist"
@@ -69,7 +72,6 @@ def main() -> None:
     print(f"baseline always-GRIND:   mean_reward={grind_reward:.1f} clear_rate={grind_clear:.2f}")
 
     model.learn(total_timesteps=args.timesteps, callback=ckpt)
-    Path("checkpoints/strategist").mkdir(parents=True, exist_ok=True)
     model.save("checkpoints/strategist/ppo_strategist_final")
 
     def trained(obs: np.ndarray) -> int:

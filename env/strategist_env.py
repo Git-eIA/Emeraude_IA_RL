@@ -49,10 +49,10 @@ class StrategistEnv(gym.Env):
         self.challenge_idx = 0
         self.steps = 0
 
-    def _challenge_level(self) -> int:
+    def _challenge_level(self) -> float:
         # Clamp: after the last win challenge_idx == len, but _obs still runs.
         idx = min(self.challenge_idx, len(CHALLENGE_LEVELS) - 1)
-        return CHALLENGE_LEVELS[idx]
+        return float(CHALLENGE_LEVELS[idx])
 
     def _obs(self) -> np.ndarray:
         cl = self._challenge_level()
