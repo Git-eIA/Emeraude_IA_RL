@@ -86,22 +86,22 @@ def plan_route(
 Three bricks.
 
 **a) Collision detector (observational).**
-Compares two snapshots taken around one key press.
+Compares two snapshots taken around one key press. The caller already knows the
+direction it pressed, so the detector only classifies the outcome.
 
 ```python
-DIRECTIONS = ("up", "down", "left", "right")  # or an enum
+DIRECTIONS = ("up", "down", "left", "right")
 
 def resolve_move(
     before: WorldSnapshot,
     after: WorldSnapshot,
-    direction: str,
 ) -> str:  # "moved" | "blocked" | "transition"
     ...
 ```
 
 - Same `map_id`, `pos` changed → `"moved"`.
-- Same `map_id`, `pos` unchanged → `"blocked"` (a wall in `direction` from
-  `before.pos`).
+- Same `map_id`, `pos` unchanged → `"blocked"` (a wall in the pressed direction
+  from `before.pos`; the caller records it against that direction).
 - `map_id` changed → `"transition"` (a map edge; Level A's concern, not a wall).
 
 **b) Learned wall grid (`WallMap`, self-built).**
