@@ -35,3 +35,34 @@ def resolve_move(before: WorldSnapshot, after: WorldSnapshot) -> str:
     if before.pos != after.pos:
         return "moved"
     return "blocked"
+
+
+class WallMap:
+    """Per-map set of blocked directed edges, learned from observed collisions.
+
+    An edge never observed is assumed walkable (optimistic); A* replans when a
+    real wall is later discovered. Blocking is bidirectional: a wall between two
+    cells blocks the move both ways.
+    """
+
+    def __init__(self) -> None:
+        # map_id -> set of (cell, direction) that are known blocked.
+        self._blocked: dict[
+            tuple[int, int], set[tuple[tuple[int, int], str]]
+        ] = {}
+
+    def block(
+        self, map_id: tuple[int, int], cell: tuple[int, int], direction: str
+    ) -> None:
+        """Record a wall in `direction` from `cell`, and its mirror from the neighbour."""
+        edges = self._blocked.setdefault(map_id, set())
+        edges.add((cell, direction))
+        dx, dy = DELTAS[direction]
+        neighbour = (cell[0] + dx, cell[1] + dy)
+        edges.add((neighbour, OPPOSITE[direction]))
+
+    def is_blocked(
+        self, map_id: tuple[int, int], cell: tuple[int, int], direction: str
+    ) -> bool:
+        """True only if this edge was observed blocked; unknown edges are open."""
+        return (cell, direction) in self._blocked.get(map_id, ())

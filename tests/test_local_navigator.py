@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from env.local_navigator import (
     DIRECTIONS,
+    WallMap,
     resolve_move,
 )
 from env.world_reader import WorldSnapshot
@@ -32,3 +33,27 @@ def test_transition_when_map_changes() -> None:
     before = _snap((0, 9), (2, 3))
     after = _snap((0, 16), (5, 10))
     assert resolve_move(before, after) == "transition"
+
+
+def test_wallmap_records_blocked_edge() -> None:
+    walls = WallMap()
+    walls.block((0, 9), (2, 3), "up")
+    assert walls.is_blocked((0, 9), (2, 3), "up") is True
+
+
+def test_wallmap_unknown_edge_is_optimistically_open() -> None:
+    walls = WallMap()
+    assert walls.is_blocked((0, 9), (2, 3), "up") is False
+
+
+def test_wallmap_blocking_is_bidirectional() -> None:
+    walls = WallMap()
+    walls.block((0, 9), (2, 3), "up")   # wall between (2,3) and (2,2)
+    # the neighbour going back the opposite way is also blocked
+    assert walls.is_blocked((0, 9), (2, 2), "down") is True
+
+
+def test_wallmap_is_per_map() -> None:
+    walls = WallMap()
+    walls.block((0, 9), (2, 3), "up")
+    assert walls.is_blocked((0, 16), (2, 3), "up") is False
