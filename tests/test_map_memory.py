@@ -43,3 +43,30 @@ def test_revisiting_a_map_does_not_duplicate_the_node() -> None:
 
 def test_node_returns_none_for_unseen_map() -> None:
     assert MapMemory().node((9, 9)) is None
+
+
+def test_transition_between_maps_adds_a_directed_edge() -> None:
+    mem = MapMemory()
+    mem.observe(_snap((0, 9)), WorldEvent())    # Littleroot
+    mem.observe(_snap((0, 16)), WorldEvent())   # step onto Route 101
+    assert ((0, 9), (0, 16)) in mem.edges()
+
+
+def test_staying_on_the_same_map_adds_no_edge() -> None:
+    mem = MapMemory()
+    mem.observe(_snap((0, 9), (1, 1)), WorldEvent())
+    mem.observe(_snap((0, 9), (1, 2)), WorldEvent())
+    assert mem.edges() == set()
+
+
+def test_edges_are_directional() -> None:
+    mem = MapMemory()
+    mem.observe(_snap((0, 9)), WorldEvent())
+    mem.observe(_snap((0, 16)), WorldEvent())
+    assert ((0, 16), (0, 9)) not in mem.edges()
+
+
+def test_first_observation_adds_no_edge() -> None:
+    mem = MapMemory()
+    mem.observe(_snap((0, 9)), WorldEvent())
+    assert mem.edges() == set()
