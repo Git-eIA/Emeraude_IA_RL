@@ -13,24 +13,51 @@ def _u16(v: int) -> bytes:
 
 
 class _ScriptedBattleEmulator:
-    """Fake emulator: opponent HP drops each time the agent acts (a 'hit')."""
+    """Fake emulator modelling the action-menu flag and one turn per commit.
+
+    Phases: 'menu' (flag == ACTION_MENU_VALUE) -> A opens the move list ('moves',
+    flag 0) -> A commits, dealing damage and entering 'resolving' (flag 0) ->
+    two A-presses of dialogue return to 'menu'. Three commits faint the
+    opponent and win. This mirrors the real ROM's flag-driven turn loop so the
+    env's press/advance choreography is exercised end-to-end.
+    """
+
+    _RESOLVE_PRESSES = 2
 
     def __init__(self) -> None:
+        self._reset()
+
+    def _reset(self) -> None:
         self._opp_hp = 18
         self._my_hp = 19
         self._outcome = 0
+        self._phase = "menu"
+        self._resolve_left = 0
 
     def load_state(self, data: bytes) -> None:
-        self._opp_hp = 18
-        self._my_hp = 19
-        self._outcome = 0
+        self._reset()
 
     def step(self, keys: int, frames: int) -> None:
-        # Each action deals 6 damage; three hits faint the opponent and win.
-        if self._opp_hp > 0:
-            self._opp_hp = max(0, self._opp_hp - 6)
-            if self._opp_hp == 0:
-                self._outcome = 1
+        if keys == 0:  # release / idle frames advance nothing
+            return
+        from emulator import buttons
+
+        if self._phase == "menu" and keys & buttons.KEY_A:
+            self._phase = "moves"
+        elif self._phase == "moves" and keys & buttons.KEY_A:
+            self._commit_turn()
+        elif self._phase == "resolving" and keys & buttons.KEY_A:
+            self._resolve_left -= 1
+            if self._resolve_left <= 0 and self._outcome == 0:
+                self._phase = "menu"
+
+    def _commit_turn(self) -> None:
+        self._opp_hp = max(0, self._opp_hp - 6)  # my move lands
+        self._my_hp = max(0, self._my_hp - 2)  # foe hits back
+        if self._opp_hp == 0:
+            self._outcome = 1
+        self._phase = "resolving"
+        self._resolve_left = self._RESOLVE_PRESSES
 
     def screenshot(self):
         return np.zeros((160, 240, 3), dtype=np.uint8)
@@ -49,12 +76,16 @@ class _ScriptedBattleEmulator:
 
     def read_bytes(self, addr: int, size: int) -> bytes:
         from env.game_state import (
+            ACTION_MENU_VALUE,
+            GBATTLE_ACTION_MENU_ADDR,
             GBATTLE_MONS_ADDR,
             GBATTLE_OUTCOME_ADDR,
             GBATTLE_TYPE_FLAGS_ADDR,
             GMOVE_RESULT_FLAGS_ADDR,
         )
 
+        if addr == GBATTLE_ACTION_MENU_ADDR:
+            return bytes([ACTION_MENU_VALUE if self._phase == "menu" else 0])
         if addr == GBATTLE_TYPE_FLAGS_ADDR:
             return _u16(0 if self._outcome else 1) + b"\x00\x00"
         if addr == GBATTLE_OUTCOME_ADDR:

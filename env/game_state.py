@@ -132,6 +132,14 @@ GBATTLE_OUTCOME_ADDR = 0x0202433A
 GMOVE_RESULT_FLAGS_ADDR = 0x0202427C
 BATTLE_MON_SIZE = 0x58
 
+# Action-selection state: this byte equals 4 only while the battle waits for the
+# player to pick an action (ATTAQUE/SAC/POKEMON/FUITE). It is 0 during the move
+# submenu, move animations, and result dialogue. Found empirically by diffing
+# RAM at the menu vs mid-animation across turns, and validated by driving 5/5
+# wild battles to a win with it.
+GBATTLE_ACTION_MENU_ADDR = 0x02023266
+ACTION_MENU_VALUE = 4
+
 # Per-BattlePokemon offsets (pret/pokeemerald, region-stable).
 _BM_SPECIES = 0x00
 _BM_MOVES = 0x0C
@@ -219,6 +227,10 @@ class BattleReader:
             "types": (self._u8(base + _BM_TYPE1), self._u8(base + _BM_TYPE2)),
             "moves": moves,
         }
+
+    def at_action_menu(self) -> bool:
+        """True iff the battle is waiting for the player to choose an action."""
+        return self._u8(GBATTLE_ACTION_MENU_ADDR) == ACTION_MENU_VALUE
 
     def _u8(self, addr: int) -> int:
         return self._read(addr, 1)[0]

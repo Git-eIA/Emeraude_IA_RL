@@ -1,8 +1,10 @@
 """Gymnasium battle env for the Fighter. One episode = one battle.
 
 Reads battle state from RAM (numbers, not pixels) and exposes a Discrete(4)
-'use move i' action. Between decision points it spams A to advance dialogue
-until the player must choose again or the battle ends.
+'use move i' action. Turn boundaries are driven by BattleReader.at_action_menu()
+(a RAM flag that is set only while the game waits for the player to pick an
+action), so each env step performs exactly one battle turn: open the move list,
+select the slot, then advance dialogue until the next menu or the battle ends.
 """
 from __future__ import annotations
 
@@ -16,11 +18,18 @@ from emulator import buttons
 from env.battle_rewards import BattleRewardTracker
 from env.game_state import BattleReader, BattleState
 
-FRAMES_PER_PRESS = 8
-MAX_ADVANCE_PRESSES = 60  # cap the A-spam loop so a stuck menu can't hang
+# Button pulse: hold then release, so each press is a distinct edge. Pressing
+# with no release frame in between makes the GBA debounce consecutive holds
+# into a single press, which stalls all menu navigation.
+PRESS_HOLD_FRAMES = 6
+PRESS_RELEASE_FRAMES = 10
+SETTLE_FRAMES = 8  # let a freshly-opened menu accept input before pressing
+OPEN_MENU_TRIES = 10  # A-presses allowed to open the move list from the menu
+MAX_ADVANCE_PRESSES = 120  # cap the A-spam loop so a stuck battle can't hang
 NUM_TYPES = 18  # types 0..17
 MAX_PP = 40.0
 OBS_SIZE = 17
+RESET_WARMUP_FRAMES = 4  # let the emulator render after load_state
 
 MoveTypeFn = Callable[[int], int]
 
@@ -58,7 +67,11 @@ class BattleEmeraldEnv(gym.Env):
         super().reset(seed=seed)
         idx = int(self.np_random.integers(len(self._initial_states)))
         self.emulator.load_state(self._initial_states[idx])
+        self.emulator.step(0, RESET_WARMUP_FRAMES)
         self._turn = 0
+        # The savestate may sit mid-intro; advance to the first action menu so
+        # the agent's first decision is a real move choice.
+        self._advance_to_menu()
         state = self._reader.battle_state()
         self._rewards.reset(state)
         return self._observation(state), self._info(state)
@@ -67,7 +80,7 @@ class BattleEmeraldEnv(gym.Env):
         self, action: int
     ) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
         self._select_move(int(action))
-        self._advance_to_decision()
+        self._advance_to_menu()
         self._turn += 1
         state = self._reader.battle_state()
         reward = self._rewards.update(state)
@@ -78,22 +91,34 @@ class BattleEmeraldEnv(gym.Env):
     def render(self) -> np.ndarray:
         return self.emulator.screenshot()
 
-    def _select_move(self, action: int) -> None:
-        # Open FIGHT then pick the move slot. The scripted navigation presses A
-        # to open the move list and A again on the chosen slot; the fake
-        # emulator ignores navigation and just applies the hit.
-        self.emulator.step(buttons.KEY_A, FRAMES_PER_PRESS)
-        for _ in range(action):
-            self.emulator.step(buttons.KEY_DOWN, FRAMES_PER_PRESS)
-        self.emulator.step(buttons.KEY_A, FRAMES_PER_PRESS)
+    def _press(self, key: int) -> None:
+        # Hold then release so the GBA registers a distinct press.
+        self.emulator.step(key, PRESS_HOLD_FRAMES)
+        self.emulator.step(0, PRESS_RELEASE_FRAMES)
 
-    def _advance_to_decision(self) -> None:
-        # Spam A to clear dialogue until back at a decision point or battle end.
+    def _select_move(self, action: int) -> None:
+        # From the action menu (cursor defaults to FIGHT), press A until the
+        # move list is open (flag leaves the menu value), navigate to the chosen
+        # slot, then commit. Pressing A until the menu opens absorbs an input
+        # eaten by the menu's open animation.
+        for _ in range(OPEN_MENU_TRIES):
+            if not self._reader.at_action_menu():
+                break
+            self._press(buttons.KEY_A)
+        for _ in range(action):
+            self._press(buttons.KEY_DOWN)
+        self._press(buttons.KEY_A)
+
+    def _advance_to_menu(self) -> None:
+        # Press A to clear dialogue until back at the action menu or battle end.
         for _ in range(MAX_ADVANCE_PRESSES):
             state = self._reader.battle_state()
             if state.outcome != 0 or not state.in_battle:
                 return
-            self.emulator.step(buttons.KEY_A, FRAMES_PER_PRESS)
+            if self._reader.at_action_menu():
+                self.emulator.step(0, SETTLE_FRAMES)
+                return
+            self._press(buttons.KEY_A)
 
     def _observation(self, state: BattleState) -> np.ndarray:
         obs = np.zeros(OBS_SIZE, dtype=np.float32)
