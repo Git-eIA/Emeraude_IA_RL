@@ -29,6 +29,12 @@ OPPOSITE: dict[str, str] = {
     "right": "left",
 }
 
+# A GBA Emerald map holds at most a few thousand walkable tiles, so this cap is
+# never reached by a legitimate in-map path. It exists only to make plan_path a
+# total function: an unreachable goal in the infinite optimistic grid would
+# otherwise fan out forever (bounded-loop safety rule).
+MAX_EXPANSIONS = 50_000
+
 
 def resolve_move(before: WorldSnapshot, after: WorldSnapshot) -> str:
     """Classify one attempted step: 'moved' | 'blocked' | 'transition'."""
@@ -93,10 +99,14 @@ def plan_path(
     came_from: dict[tuple[int, int], tuple[tuple[int, int], str]] = {}
     g_score: dict[tuple[int, int], int] = {start: 0}
 
+    expansions = 0
     while open_heap:
         _, current = heapq.heappop(open_heap)
         if current == goal:
             return _reconstruct(came_from, current)
+        expansions += 1
+        if expansions > MAX_EXPANSIONS:
+            return None  # goal unreachable within the search bound
         for direction in DIRECTIONS:
             if wallmap.is_blocked(map_id, current, direction):
                 continue

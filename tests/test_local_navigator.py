@@ -103,3 +103,12 @@ def test_path_replans_after_new_wall_discovered() -> None:
     second = plan_path(walls, (0, 9), (0, 0), (2, 0))
     assert second is not None
     assert second != first  # forced to detour
+
+
+def test_path_none_when_goal_sealed_off_from_open_start() -> None:
+    walls = WallMap()
+    # Start is in the open plane; the goal cell is walled on all four sides,
+    # so it is unreachable. Without a search bound A* would never terminate.
+    for d in ("up", "down", "left", "right"):
+        walls.block((0, 9), (3, 0), d)
+    assert plan_path(walls, (0, 9), (0, 0), (3, 0)) is None
