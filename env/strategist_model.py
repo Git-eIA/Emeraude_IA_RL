@@ -30,3 +30,13 @@ def win_prob(team_level: float, challenge_level: float, team_hp: float) -> float
     if z < -700.0:
         return 0.0
     return 1.0 / (1.0 + math.exp(-z))
+
+
+def grind(team_level: float, team_hp: float) -> tuple[float, float]:
+    """One grind session: gain a level, lose HP (clamped at 0)."""
+    return team_level + GRIND_LEVEL_GAIN, max(0.0, team_hp - GRIND_HP_COST)
+
+
+def heal() -> float:
+    """Heal restores team HP to full."""
+    return 1.0
