@@ -25,7 +25,8 @@ def win_prob(team_level: float, challenge_level: float, team_hp: float) -> float
     """Probability the Fighter wins the important battle, in [0, 1]."""
     dlevel = team_level - challenge_level
     z = WIN_A * dlevel + WIN_B * (team_hp - 1.0) + WIN_C
-    # Guard the exp: for very negative z, math.exp(-z) would overflow.
+    # Guard the exp overflow for very negative z (p -> 0). For very positive z,
+    # math.exp(-z) underflows to 0.0 cleanly (p -> 1), so no upper guard needed.
     if z < -700.0:
         return 0.0
     return 1.0 / (1.0 + math.exp(-z))
