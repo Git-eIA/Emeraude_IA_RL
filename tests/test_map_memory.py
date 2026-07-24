@@ -1,6 +1,8 @@
 """MapMemory: self-built observational graph of discovered places."""
 from __future__ import annotations
 
+import pytest
+
 from env.map_memory import KNOWN_PLACES, MapMemory, PlaceNode, WorldEvent
 from env.world_reader import WorldSnapshot
 
@@ -26,7 +28,7 @@ def test_unknown_map_defaults_to_unknown_place_type() -> None:
 
 def test_catalogued_map_resolves_its_place_type() -> None:
     if not KNOWN_PLACES:
-        return
+        pytest.skip("KNOWN_PLACES is empty — add a catalog entry to enable this test")
     known_id, known_type = next(iter(KNOWN_PLACES.items()))
     mem = MapMemory()
     mem.observe(_snap(known_id), WorldEvent())
