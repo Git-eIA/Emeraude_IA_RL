@@ -51,10 +51,10 @@ def navigate_to(
         if path is None:
             return "unreachable"
         direction = path[0]
-        outcome = _press_until_moved(emulator, reader, before, direction)
+        outcome = probe_step(emulator, reader, before, direction)
         if outcome == "transition":
             if memory is not None:
-                landed = _snapshot_settled(reader)
+                landed = snapshot_settled(reader)
                 if landed is not None:
                     memory.record_portal(
                         before.map_id, before.pos, direction, landed.map_id
@@ -65,13 +65,13 @@ def navigate_to(
     return "timeout"
 
 
-def _press_until_moved(emulator: Any, reader: Any, before: Any, direction: str) -> str:
+def probe_step(emulator: Any, reader: Any, before: Any, direction: str) -> str:
     """Press `direction`, retrying so a first-press turn isn't mistaken for a wall."""
     outcome = "blocked"
     for _ in range(TURN_RETRIES):
         emulator.step(_DIRECTION_KEYS[direction], STEP_FRAMES)
         emulator.step(0, RELEASE_FRAMES)
-        after = _snapshot_settled(reader)
+        after = snapshot_settled(reader)
         if after is None:
             return "blocked"
         outcome = resolve_move(before, after)
@@ -80,7 +80,7 @@ def _press_until_moved(emulator: Any, reader: Any, before: Any, direction: str) 
     return outcome
 
 
-def _snapshot_settled(reader: Any) -> Any:
+def snapshot_settled(reader: Any) -> Any:
     """Read a snapshot, skipping up to SETTLE_TRIES None frames during relocation."""
     snap = None
     for _ in range(SETTLE_TRIES):

@@ -136,3 +136,17 @@ def test_left_map_records_portal_when_memory_given() -> None:
     assert memory.portal((0, 0), (0, 1)) == Portal(
         from_cell=(0, 0), direction="down", to_map=(0, 1)
     )
+
+
+def test_probe_step_and_snapshot_settled_are_public() -> None:
+    """map_map imports these two by their public names; guard the rename."""
+    from env.live_navigator import probe_step, snapshot_settled
+
+    world = FakeWorld(start=(0, 0))  # open world, player at (0, 0)
+    before = snapshot_settled(world)
+    assert before is not None
+    assert before.pos == (0, 0)
+
+    outcome = probe_step(world, world, before, "right")
+    assert outcome == "moved"
+    assert snapshot_settled(world).pos == (1, 0)
