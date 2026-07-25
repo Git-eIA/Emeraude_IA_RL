@@ -19,6 +19,14 @@ KNOWN_PLACES: dict[tuple[int, int], str] = {
 }
 
 
+@dataclass(frozen=True)
+class Portal:
+    """One directed border crossing: leave `from_cell` going `direction` to reach `to_map`."""
+    from_cell: tuple[int, int]
+    direction: str
+    to_map: tuple[int, int]
+
+
 @dataclass
 class PlaceNode:
     map_id: tuple[int, int]
@@ -39,6 +47,10 @@ class MapMemory:
         self.nodes: dict[tuple[int, int], PlaceNode] = {}
         self._edges: set[tuple[tuple[int, int], tuple[int, int]]] = set()
         self._prev_map_id: tuple[int, int] | None = None
+        # (from_map, to_map) -> the remembered crossing between them.
+        self._portals: dict[
+            tuple[tuple[int, int], tuple[int, int]], Portal
+        ] = {}
 
     def observe(self, snapshot: WorldSnapshot, event: WorldEvent) -> None:
         node = self._ensure_node(snapshot.map_id)
@@ -52,6 +64,25 @@ class MapMemory:
 
     def edges(self) -> set[tuple[tuple[int, int], tuple[int, int]]]:
         return set(self._edges)
+
+    def record_portal(
+        self,
+        from_map: tuple[int, int],
+        from_cell: tuple[int, int],
+        direction: str,
+        to_map: tuple[int, int],
+    ) -> None:
+        """Remember the door from from_map to to_map; also ensures the edge exists."""
+        self._ensure_node(from_map)
+        self._ensure_node(to_map)
+        self._edges.add((from_map, to_map))
+        self._portals[(from_map, to_map)] = Portal(from_cell, direction, to_map)
+
+    def portal(
+        self, from_map: tuple[int, int], to_map: tuple[int, int]
+    ) -> Portal | None:
+        """The known crossing from from_map to to_map, or None if never recorded."""
+        return self._portals.get((from_map, to_map))
 
     def node(self, map_id: tuple[int, int]) -> PlaceNode | None:
         return self.nodes.get(map_id)

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from env.map_memory import KNOWN_PLACES, MapMemory, PlaceNode, WorldEvent
+from env.map_memory import KNOWN_PLACES, MapMemory, PlaceNode, Portal, WorldEvent
 from env.world_reader import WorldSnapshot
 
 
@@ -97,3 +97,34 @@ def test_no_event_adds_no_label() -> None:
     mem = MapMemory()
     mem.observe(_snap((0, 16)), WorldEvent())
     assert mem.node((0, 16)).labels == set()
+
+
+def test_record_and_read_portal() -> None:
+    mem = MapMemory()
+    mem.record_portal((0, 9), (5, 0), "up", (0, 16))
+    p = mem.portal((0, 9), (0, 16))
+    assert p == Portal(from_cell=(5, 0), direction="up", to_map=(0, 16))
+
+
+def test_portal_is_none_for_unrecorded_pair() -> None:
+    assert MapMemory().portal((0, 9), (0, 16)) is None
+
+
+def test_record_portal_also_creates_the_edge() -> None:
+    mem = MapMemory()
+    mem.record_portal((0, 9), (5, 0), "up", (0, 16))
+    assert ((0, 9), (0, 16)) in mem.edges()
+
+
+def test_record_portal_last_write_wins() -> None:
+    mem = MapMemory()
+    mem.record_portal((0, 9), (5, 0), "up", (0, 16))
+    mem.record_portal((0, 9), (4, 0), "up", (0, 16))
+    assert mem.portal((0, 9), (0, 16)) == Portal((4, 0), "up", (0, 16))
+
+
+def test_record_portal_creates_both_nodes() -> None:
+    mem = MapMemory()
+    mem.record_portal((0, 9), (5, 0), "up", (0, 16))
+    assert mem.node((0, 9)) is not None
+    assert mem.node((0, 16)) is not None

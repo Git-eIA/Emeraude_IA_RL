@@ -11,6 +11,7 @@ from typing import Any
 
 from emulator import buttons
 from env.local_navigator import WallMap, plan_path, resolve_move
+from env.map_memory import MapMemory
 
 _DIRECTION_KEYS: dict[str, int] = {
     "up": buttons.KEY_UP,
@@ -31,10 +32,13 @@ def navigate_to(
     wallmap: WallMap,
     target: tuple[int, int],
     max_steps: int = 200,
+    memory: MapMemory | None = None,
 ) -> str:
     """Walk the player to `target` on its current map.
 
-    Returns 'arrived' | 'unreachable' | 'left_map' | 'timeout'.
+    When `memory` is given, a map transition is recorded as a portal
+    (from_cell + direction + landed-on map). Returns
+    'arrived' | 'unreachable' | 'left_map' | 'timeout'.
     """
     for _ in range(max_steps):
         before = reader.snapshot()
@@ -49,6 +53,12 @@ def navigate_to(
         direction = path[0]
         outcome = _press_until_moved(emulator, reader, before, direction)
         if outcome == "transition":
+            if memory is not None:
+                landed = _snapshot_settled(reader)
+                if landed is not None:
+                    memory.record_portal(
+                        before.map_id, before.pos, direction, landed.map_id
+                    )
             return "left_map"
         if outcome == "blocked":
             wallmap.block(before.map_id, before.pos, direction)
