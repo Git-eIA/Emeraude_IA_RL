@@ -122,3 +122,19 @@ def test_tolerates_none_snapshots_at_loop_top() -> None:
     result = navigate_to(world, world, WallMap(), target=(2, 0), max_steps=50)
     assert result == "arrived"
     assert world.pos == (2, 0)
+
+
+from env.map_memory import MapMemory, Portal
+
+
+def test_left_map_records_portal_when_memory_given() -> None:
+    # Stepping down from (0,0) onto the transition cell (0,1) crosses to a new map.
+    world = FakeWorld(start=(0, 0), map_flips={(0, 1)})
+    memory = MapMemory()
+    result = navigate_to(
+        world, world, WallMap(), target=(0, 3), max_steps=50, memory=memory
+    )
+    assert result == "left_map"
+    assert memory.portal((0, 0), (0, 1)) == Portal(
+        from_cell=(0, 0), direction="down", to_map=(0, 1)
+    )
