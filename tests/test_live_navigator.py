@@ -4,6 +4,7 @@ from __future__ import annotations
 from emulator import buttons
 from env.live_navigator import navigate_to
 from env.local_navigator import WallMap
+from env.map_memory import MapMemory, Portal
 from env.world_reader import WorldSnapshot
 
 _KEY_TO_DIR: dict[int, str] = {
@@ -122,9 +123,6 @@ def test_tolerates_none_snapshots_at_loop_top() -> None:
     result = navigate_to(world, world, WallMap(), target=(2, 0), max_steps=50)
     assert result == "arrived"
     assert world.pos == (2, 0)
-
-
-from env.map_memory import MapMemory, Portal
 
 
 def test_left_map_records_portal_when_memory_given() -> None:

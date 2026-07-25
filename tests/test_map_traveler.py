@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from emulator import buttons
 from env.local_navigator import DIRECTIONS, WallMap
-from env.map_memory import MapMemory
+from env.map_memory import MapMemory, WorldEvent
 from env.map_traveler import travel_to
 from env.world_reader import WorldSnapshot
 
@@ -81,9 +81,6 @@ def test_single_hop_crosses_one_known_door() -> None:
     assert result == "arrived"
     assert world.map_id == (0, 1)
     assert world.pos == (1, 0)
-
-
-from env.map_memory import WorldEvent
 
 
 def test_three_map_chain() -> None:

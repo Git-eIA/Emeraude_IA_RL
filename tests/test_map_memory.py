@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from env.map_memory import KNOWN_PLACES, MapMemory, PlaceNode, WorldEvent
+from env.map_memory import KNOWN_PLACES, MapMemory, PlaceNode, Portal, WorldEvent
 from env.world_reader import WorldSnapshot
 
 
@@ -97,9 +97,6 @@ def test_no_event_adds_no_label() -> None:
     mem = MapMemory()
     mem.observe(_snap((0, 16)), WorldEvent())
     assert mem.node((0, 16)).labels == set()
-
-
-from env.map_memory import Portal
 
 
 def test_record_and_read_portal() -> None:
