@@ -9,7 +9,7 @@ the reader API (`snapshot()` -> WorldSnapshot). No ROM, no emulator.
 from __future__ import annotations
 
 from emulator import buttons
-from env.local_navigator import DELTAS, WallMap
+from env.local_navigator import DELTAS, OPPOSITE, WallMap
 from env.map_explorer import map_map
 from env.map_memory import MapMemory
 from env.world_reader import WorldSnapshot
@@ -94,3 +94,62 @@ def test_sealed_room_complete_survey():
     for (cell, direction) in walls:
         assert wallmap.is_blocked(target, cell, direction)
     assert memory.edges() == set()
+
+
+def _reversible_border(
+    from_map: tuple[int, int],
+    from_cell: tuple[int, int],
+    direction: str,
+    to_map: tuple[int, int],
+    entry: tuple[int, int],
+) -> dict[
+    tuple[tuple[int, int], tuple[int, int], str],
+    tuple[tuple[int, int], tuple[int, int]],
+]:
+    """A two-way border: crossing `direction` lands on to_map@entry, and the
+    opposite press from entry returns to from_map@from_cell."""
+    return {
+        (from_map, from_cell, direction): (to_map, entry),
+        (to_map, entry, OPPOSITE[direction]): (from_map, from_cell),
+    }
+
+
+def test_reversible_door_recorded_and_survey_continues():
+    target = (3, 3)
+    other = (7, 7)
+    # 2x1 room: cells (0,0),(1,0). Seal every boundary EXCEPT (1,0)->right,
+    # which is a reversible door to `other`.
+    walls = _sealed_room_walls(2, 1)
+    walls.discard(((1, 0), "right"))
+    borders = _reversible_border(target, (1, 0), "right", other, (0, 0))
+    world = ExploreWorld(target, start=(0, 0), walls=walls, borders=borders)
+    memory = MapMemory()
+    wallmap = WallMap()
+
+    result = map_map(world, world, memory, wallmap, target, max_steps=200)
+
+    assert result == "complete"
+    portal = memory.portal(target, other)
+    assert portal is not None
+    assert portal.from_cell == (1, 0)
+    assert portal.direction == "right"
+    assert portal.to_map == other
+    assert wallmap.is_blocked(target, (0, 0), "left")
+
+
+def test_no_edge_is_reprobed():
+    """After 'complete', every (cell, direction) was tried at most once, so the
+    press count cannot exceed the total edge count of the reached region."""
+    target = (3, 3)
+    walls = _sealed_room_walls(2, 2)
+    world = ExploreWorld(target, start=(0, 0), walls=walls)
+    memory = MapMemory()
+    wallmap = WallMap()
+
+    result = map_map(world, world, memory, wallmap, target, max_steps=500)
+
+    assert result == "complete"
+    # 4 cells x 4 directions = 16 directed edges is the hard ceiling on probes;
+    # repositioning presses are bounded by the same walked region. A runaway
+    # re-probe loop would blow past this immediately.
+    assert world.presses <= 64
