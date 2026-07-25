@@ -148,3 +148,23 @@ def test_lost_when_crossing_lands_on_unexpected_map() -> None:
         goal_map=(0, 1), goal_cell=(1, 0),
     )
     assert result == "lost"
+
+
+def test_unreachable_when_the_crossing_press_cannot_reach_the_far_side() -> None:
+    # The door cell (2,0) is reachable, but the portal claims it crosses 'right'
+    # while the far-side neighbour (3,0) is sealed off and no border fires there.
+    # The crossing leg must report "unreachable", not "lost".
+    walls = {
+        ((0, 0), (2, 0), "right"),
+        ((0, 0), (3, 1), "up"),
+        ((0, 0), (4, 0), "left"),
+        ((0, 0), (3, -1), "down"),
+    }
+    memory = MapMemory()
+    memory.record_portal((0, 0), (2, 0), "right", (0, 1))
+    world = MultiMapWorld(start_map=(0, 0), start_cell=(0, 0), walls=walls)
+    result = travel_to(
+        world, world, memory, WallMap(),
+        goal_map=(0, 1), goal_cell=(1, 0),
+    )
+    assert result == "unreachable"

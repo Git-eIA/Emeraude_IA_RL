@@ -57,7 +57,9 @@ def travel_to(
         # neighbour, which transitions on the first press (and records the portal).
         dx, dy = DELTAS[crossing.direction]
         neighbour = (crossing.from_cell[0] + dx, crossing.from_cell[1] + dy)
-        navigate_to(emulator, reader, wallmap, neighbour, memory=memory)
+        crossed = navigate_to(emulator, reader, wallmap, neighbour, memory=memory)
+        if crossed in ("unreachable", "timeout"):
+            return crossed   # the crossing never fired; not a route divergence
 
         landed = _snapshot_settled(reader)
         if landed is None or landed.map_id != next_map:
