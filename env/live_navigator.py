@@ -32,13 +32,24 @@ def navigate_to(
     target: tuple[int, int],
     max_steps: int = 200,
 ) -> str:
-    """Walk the player to `target`. Returns 'arrived' or 'timeout' (for now)."""
+    """Walk the player to `target` on its current map.
+
+    Returns 'arrived' | 'unreachable' | 'left_map' | 'timeout'.
+    """
     for _ in range(max_steps):
         before = reader.snapshot()
+        if before is None:
+            emulator.step(0, RELEASE_FRAMES)   # relocating; idle a beat and retry
+            continue
         if before.pos == target:
             return "arrived"
-        direction = plan_path(wallmap, before.map_id, before.pos, target)[0]
+        path = plan_path(wallmap, before.map_id, before.pos, target)
+        if path is None:
+            return "unreachable"
+        direction = path[0]
         outcome = _press_until_moved(emulator, reader, before, direction)
+        if outcome == "transition":
+            return "left_map"
         if outcome == "blocked":
             wallmap.block(before.map_id, before.pos, direction)
     return "timeout"

@@ -102,3 +102,23 @@ def test_first_press_turns_without_recording_wall() -> None:
     assert result == "arrived"
     assert world.pos == (2, 0)
     assert not wallmap.is_blocked((0, 0), (0, 0), "right")
+
+
+def test_unreachable_when_goal_is_sealed_off() -> None:
+    walls = {((0, 0), d) for d in ("up", "down", "left", "right")}
+    world = FakeWorld(start=(0, 0), walls=walls)
+    result = navigate_to(world, world, WallMap(), target=(5, 5), max_steps=50)
+    assert result == "unreachable"
+
+
+def test_left_map_when_stepping_onto_a_transition_cell() -> None:
+    world = FakeWorld(start=(0, 0), map_flips={(0, 1)})
+    result = navigate_to(world, world, WallMap(), target=(0, 3), max_steps=50)
+    assert result == "left_map"
+
+
+def test_tolerates_none_snapshots_at_loop_top() -> None:
+    world = FakeWorld(start=(0, 0), none_frames=2)
+    result = navigate_to(world, world, WallMap(), target=(2, 0), max_steps=50)
+    assert result == "arrived"
+    assert world.pos == (2, 0)
