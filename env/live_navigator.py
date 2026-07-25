@@ -21,6 +21,8 @@ _DIRECTION_KEYS: dict[str, int] = {
 
 STEP_FRAMES = 24      # hold a d-pad key ~0.4 s: one walking tile (matches env FRAMES_PER_ACTION)
 RELEASE_FRAMES = 8    # idle after each press so the GBA doesn't fuse consecutive presses
+TURN_RETRIES = 2      # a first press may only turn the character; retry to tell turn from wall
+SETTLE_TRIES = 4      # re-read snapshot this many times to skip SaveBlock None frames
 
 
 def navigate_to(
@@ -43,7 +45,25 @@ def navigate_to(
 
 
 def _press_until_moved(emulator: Any, reader: Any, before: Any, direction: str) -> str:
-    emulator.step(_DIRECTION_KEYS[direction], STEP_FRAMES)
-    emulator.step(0, RELEASE_FRAMES)
-    after = reader.snapshot()
-    return resolve_move(before, after)
+    """Press `direction`, retrying so a first-press turn isn't mistaken for a wall."""
+    outcome = "blocked"
+    for _ in range(TURN_RETRIES):
+        emulator.step(_DIRECTION_KEYS[direction], STEP_FRAMES)
+        emulator.step(0, RELEASE_FRAMES)
+        after = _snapshot_settled(reader)
+        if after is None:
+            return "blocked"
+        outcome = resolve_move(before, after)
+        if outcome != "blocked":
+            return outcome
+    return outcome
+
+
+def _snapshot_settled(reader: Any) -> Any:
+    """Read a snapshot, skipping up to SETTLE_TRIES None frames during relocation."""
+    snap = None
+    for _ in range(SETTLE_TRIES):
+        snap = reader.snapshot()
+        if snap is not None:
+            return snap
+    return snap

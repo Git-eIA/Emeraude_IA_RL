@@ -91,3 +91,14 @@ def test_records_wall_and_reroutes() -> None:
     assert result == "arrived"
     assert world.pos == (1, 0)
     assert wallmap.is_blocked((0, 0), (0, 0), "right")
+
+
+def test_first_press_turns_without_recording_wall() -> None:
+    # In Emerald the first press only rotates the character; it must not be read
+    # as a wall.
+    world = FakeWorld(start=(0, 0), turn_first=True)
+    wallmap = WallMap()
+    result = navigate_to(world, world, wallmap, target=(2, 0), max_steps=50)
+    assert result == "arrived"
+    assert world.pos == (2, 0)
+    assert not wallmap.is_blocked((0, 0), (0, 0), "right")
