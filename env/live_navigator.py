@@ -1,17 +1,16 @@
 """live_navigator: drive the real emulator to a target cell on the current map.
 
-First live loop of the Explorer: read where the player is (P1 WorldReader), plan
-a path over the walls learned so far (P2 plan_path), press a d-pad key, and
-repeat. Later tasks add wall-learning, turn/wall disambiguation, and the
-unreachable / left_map / None-tolerance branches. No training, no reward.
-Emerald (BPEF) only.
+Read where the player is (P1 WorldReader), plan a path over walls learned so far
+(P2 plan_path), press a d-pad key, classify the result (moved / blocked /
+transition), and record any wall it bumps so the next plan routes around it
+(replan-on-bump). No training, no reward. Emerald (BPEF) only.
 """
 from __future__ import annotations
 
 from typing import Any
 
 from emulator import buttons
-from env.local_navigator import WallMap, plan_path
+from env.local_navigator import WallMap, plan_path, resolve_move
 
 _DIRECTION_KEYS: dict[str, int] = {
     "up": buttons.KEY_UP,
@@ -37,10 +36,14 @@ def navigate_to(
         if before.pos == target:
             return "arrived"
         direction = plan_path(wallmap, before.map_id, before.pos, target)[0]
-        _press(emulator, direction)
+        outcome = _press_until_moved(emulator, reader, before, direction)
+        if outcome == "blocked":
+            wallmap.block(before.map_id, before.pos, direction)
     return "timeout"
 
 
-def _press(emulator: Any, direction: str) -> None:
+def _press_until_moved(emulator: Any, reader: Any, before: Any, direction: str) -> str:
     emulator.step(_DIRECTION_KEYS[direction], STEP_FRAMES)
     emulator.step(0, RELEASE_FRAMES)
+    after = reader.snapshot()
+    return resolve_move(before, after)

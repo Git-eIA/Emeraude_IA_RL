@@ -81,3 +81,13 @@ def test_times_out_when_budget_too_small() -> None:
     result = navigate_to(world, world, WallMap(), target=(10, 0), max_steps=3)
     assert result == "timeout"
     assert world.pos != (10, 0)
+
+
+def test_records_wall_and_reroutes() -> None:
+    # Stepping right from (0,0) is walled; a down/right/up detour reaches (1,0).
+    world = FakeWorld(start=(0, 0), walls={((0, 0), "right")})
+    wallmap = WallMap()
+    result = navigate_to(world, world, wallmap, target=(1, 0), max_steps=50)
+    assert result == "arrived"
+    assert world.pos == (1, 0)
+    assert wallmap.is_blocked((0, 0), (0, 0), "right")
