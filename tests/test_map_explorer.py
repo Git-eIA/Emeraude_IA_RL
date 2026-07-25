@@ -153,3 +153,36 @@ def test_no_edge_is_reprobed():
     # repositioning presses are bounded by the same walked region. A runaway
     # re-probe loop would blow past this immediately.
     assert world.presses <= 64
+
+
+def test_non_reversible_door_ends_run_but_records_portal():
+    target = (3, 3)
+    other = (7, 7)
+    walls = _sealed_room_walls(2, 1)
+    walls.discard(((1, 0), "right"))
+    # one-way warp: crossing right lands on `other`, but the opposite press
+    # from the entry cell does NOT return (no reverse border) — a building warp.
+    borders = {(target, (1, 0), "right"): (other, (0, 0))}
+    world = ExploreWorld(target, start=(0, 0), walls=walls, borders=borders)
+    memory = MapMemory()
+    wallmap = WallMap()
+
+    result = map_map(world, world, memory, wallmap, target, max_steps=200)
+
+    assert result == "left_map"
+    portal = memory.portal(target, other)
+    assert portal is not None
+    assert portal.from_cell == (1, 0)
+    assert portal.direction == "right"
+
+
+def test_budget_exhausted_on_large_room_with_tiny_budget():
+    target = (3, 3)
+    walls = _sealed_room_walls(6, 6)  # 36 cells, far more than the budget
+    world = ExploreWorld(target, start=(0, 0), walls=walls)
+    memory = MapMemory()
+    wallmap = WallMap()
+
+    result = map_map(world, world, memory, wallmap, target, max_steps=5)
+
+    assert result == "budget_exhausted"
