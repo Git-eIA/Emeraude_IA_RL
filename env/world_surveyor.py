@@ -20,6 +20,10 @@ from env.map_memory import MapMemory, Portal
 from env.map_traveler import travel_to
 
 
+# Sentinel map id used when no start position can be read.
+_NO_MAP: tuple[int, int] = (-1, -1)
+
+
 @dataclass(frozen=True)
 class SurveyReport:
     surveyed: tuple[tuple[int, int], ...]              # maps charted, in visit order
@@ -41,7 +45,7 @@ def survey_world(
     """
     start = _current_map(reader)
     if start is None:
-        return SurveyReport((), (("unknown", "no_start"),))
+        return SurveyReport((), ((_NO_MAP, "no_start"),))
 
     pending: deque[tuple[int, int]] = deque([start])
     queued: set[tuple[int, int]] = {start}
@@ -54,7 +58,9 @@ def survey_world(
         target = pending.popleft()
 
         here = _current_map(reader)
-        if here != target:
+        if here != target and target != start:
+            # The start map has no incoming portal; we already stand on it, so
+            # never route to it (guards _entry_cell against an empty [] index).
             outcome = travel_to(
                 emulator, reader, memory, wallmap,
                 target, _entry_cell(memory, target),

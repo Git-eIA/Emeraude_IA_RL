@@ -86,6 +86,25 @@ def _reversible_border(
     }
 
 
+class _BlindReader:
+    """A reader that never settles — snapshot() always returns None."""
+
+    def snapshot(self) -> None:
+        return None
+
+    def step(self, keys: int, frames: int) -> None:  # emulator half, unused
+        return None
+
+
+def test_no_start_returns_no_start_failure() -> None:
+    reader = _BlindReader()
+    report = survey_world(reader, reader, MapMemory(), WallMap(), max_maps=10)
+
+    assert report.surveyed == ()
+    assert len(report.failed) == 1
+    assert report.failed[0][1] == "no_start"
+
+
 def test_two_maps_linked_by_reversible_border() -> None:
     a, b = (0, 0), (0, 1)
     # Each map is a fully-sealed 2x1 room. The door edges live in `borders`,
