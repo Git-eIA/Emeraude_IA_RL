@@ -73,7 +73,7 @@ def test_single_hop_crosses_one_known_door() -> None:
     borders = {((0, 0), (2, 0), "right"): ((0, 1), (0, 0))}
     world = MultiMapWorld(start_map=(0, 0), start_cell=(0, 0), borders=borders)
     memory = MapMemory()
-    memory.record_portal((0, 0), (2, 0), "right", (0, 1))
+    memory.record_portal((0, 0), (2, 0), "right", (0, 1), reversible=True, to_cell=(0, 0))
     result = travel_to(
         world, world, memory, WallMap(),
         goal_map=(0, 1), goal_cell=(1, 0),
@@ -91,8 +91,8 @@ def test_three_map_chain() -> None:
     }
     world = MultiMapWorld(start_map=(0, 0), start_cell=(0, 0), borders=borders)
     memory = MapMemory()
-    memory.record_portal((0, 0), (2, 0), "right", (0, 1))
-    memory.record_portal((0, 1), (2, 0), "right", (0, 2))
+    memory.record_portal((0, 0), (2, 0), "right", (0, 1), reversible=True, to_cell=(0, 0))
+    memory.record_portal((0, 1), (2, 0), "right", (0, 2), reversible=True, to_cell=(0, 0))
     result = travel_to(
         world, world, memory, WallMap(),
         goal_map=(0, 2), goal_cell=(1, 0),
@@ -128,7 +128,7 @@ def test_unreachable_when_door_cell_is_walled_off() -> None:
     # Start is sealed on all sides: the door cell can never be reached.
     walls = {((0, 0), (0, 0), d) for d in DIRECTIONS}
     memory = MapMemory()
-    memory.record_portal((0, 0), (2, 0), "right", (0, 1))
+    memory.record_portal((0, 0), (2, 0), "right", (0, 1), reversible=True, to_cell=(0, 0))
     world = MultiMapWorld(start_map=(0, 0), start_cell=(0, 0), walls=walls)
     result = travel_to(
         world, world, memory, WallMap(),
@@ -141,7 +141,7 @@ def test_lost_when_crossing_lands_on_unexpected_map() -> None:
     # Portal claims the door leads to B=(0,1), but the world sends us to C=(0,5).
     borders = {((0, 0), (2, 0), "right"): ((0, 5), (0, 0))}
     memory = MapMemory()
-    memory.record_portal((0, 0), (2, 0), "right", (0, 1))
+    memory.record_portal((0, 0), (2, 0), "right", (0, 1), reversible=True, to_cell=(0, 0))
     world = MultiMapWorld(start_map=(0, 0), start_cell=(0, 0), borders=borders)
     result = travel_to(
         world, world, memory, WallMap(),
@@ -161,7 +161,7 @@ def test_unreachable_when_the_crossing_press_cannot_reach_the_far_side() -> None
         ((0, 0), (3, -1), "down"),
     }
     memory = MapMemory()
-    memory.record_portal((0, 0), (2, 0), "right", (0, 1))
+    memory.record_portal((0, 0), (2, 0), "right", (0, 1), reversible=True, to_cell=(0, 0))
     world = MultiMapWorld(start_map=(0, 0), start_cell=(0, 0), walls=walls)
     result = travel_to(
         world, world, memory, WallMap(),

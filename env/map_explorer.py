@@ -70,11 +70,18 @@ def map_map(
             wallmap.block(target_map, cell, direction)
         elif outcome == "transition":
             landed = snapshot_settled(reader)
-            if landed is not None:
-                memory.record_portal(target_map, cell, direction, landed.map_id)
-                probe_step(emulator, reader, landed, OPPOSITE[direction])
+            if landed is None:
+                return "left_map"  # relocating: cannot record or verify — bail safe
+            # Step back through the door; a reversible border returns us to
+            # target_map, a one-way warp does not. Record the portal with the
+            # reversibility we just proved and the observed landing cell.
+            probe_step(emulator, reader, landed, OPPOSITE[direction])
             returned = snapshot_settled(reader)
-            if returned is None or returned.map_id != target_map:
+            reversible = returned is not None and returned.map_id == target_map
+            memory.record_portal(
+                target_map, cell, direction, landed.map_id, reversible, landed.pos
+            )
+            if not reversible:
                 return "left_map"
 
     return "budget_exhausted"

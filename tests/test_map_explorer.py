@@ -134,6 +134,8 @@ def test_reversible_door_recorded_and_survey_continues():
     assert portal.from_cell == (1, 0)
     assert portal.direction == "right"
     assert portal.to_map == other
+    assert portal.reversible is True
+    assert portal.to_cell == (0, 0)
     assert wallmap.is_blocked(target, (0, 0), "left")
 
 
@@ -174,6 +176,8 @@ def test_non_reversible_door_ends_run_but_records_portal():
     assert portal is not None
     assert portal.from_cell == (1, 0)
     assert portal.direction == "right"
+    assert portal.reversible is False
+    assert portal.to_cell == (0, 0)
 
 
 def test_budget_exhausted_on_large_room_with_tiny_budget():

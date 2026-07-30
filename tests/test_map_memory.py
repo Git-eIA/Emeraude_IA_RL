@@ -101,9 +101,9 @@ def test_no_event_adds_no_label() -> None:
 
 def test_record_and_read_portal() -> None:
     mem = MapMemory()
-    mem.record_portal((0, 9), (5, 0), "up", (0, 16))
+    mem.record_portal((0, 9), (5, 0), "up", (0, 16), reversible=True, to_cell=(5, 12))
     p = mem.portal((0, 9), (0, 16))
-    assert p == Portal(from_cell=(5, 0), direction="up", to_map=(0, 16))
+    assert p == Portal(from_cell=(5, 0), direction="up", to_map=(0, 16), reversible=True, to_cell=(5, 12))
 
 
 def test_portal_is_none_for_unrecorded_pair() -> None:
@@ -112,19 +112,40 @@ def test_portal_is_none_for_unrecorded_pair() -> None:
 
 def test_record_portal_also_creates_the_edge() -> None:
     mem = MapMemory()
-    mem.record_portal((0, 9), (5, 0), "up", (0, 16))
+    mem.record_portal((0, 9), (5, 0), "up", (0, 16), reversible=True, to_cell=(5, 12))
     assert ((0, 9), (0, 16)) in mem.edges()
 
 
 def test_record_portal_last_write_wins() -> None:
     mem = MapMemory()
-    mem.record_portal((0, 9), (5, 0), "up", (0, 16))
-    mem.record_portal((0, 9), (4, 0), "up", (0, 16))
-    assert mem.portal((0, 9), (0, 16)) == Portal((4, 0), "up", (0, 16))
+    mem.record_portal((0, 9), (5, 0), "up", (0, 16), reversible=True, to_cell=(5, 12))
+    mem.record_portal((0, 9), (4, 0), "up", (0, 16), reversible=True, to_cell=(5, 12))
+    assert mem.portal((0, 9), (0, 16)) == Portal((4, 0), "up", (0, 16), True, (5, 12))
 
 
 def test_record_portal_creates_both_nodes() -> None:
     mem = MapMemory()
-    mem.record_portal((0, 9), (5, 0), "up", (0, 16))
+    mem.record_portal((0, 9), (5, 0), "up", (0, 16), reversible=True, to_cell=(5, 12))
     assert mem.node((0, 9)) is not None
     assert mem.node((0, 16)) is not None
+
+
+def test_record_portal_round_trips_reversible_and_to_cell() -> None:
+    mem = MapMemory()
+    mem.record_portal((0, 9), (5, 0), "up", (0, 16), reversible=True, to_cell=(5, 12))
+    p = mem.portal((0, 9), (0, 16))
+    assert p == Portal(
+        from_cell=(5, 0), direction="up", to_map=(0, 16),
+        reversible=True, to_cell=(5, 12),
+    )
+
+
+def test_outgoing_and_incoming_portals() -> None:
+    mem = MapMemory()
+    mem.record_portal((0, 9), (5, 0), "up", (0, 16), reversible=True, to_cell=(5, 12))
+    mem.record_portal((0, 16), (5, 12), "down", (0, 9), reversible=True, to_cell=(5, 0))
+    mem.record_portal((0, 16), (2, 2), "right", (1, 0), reversible=False, to_cell=(0, 0))
+    out = mem.outgoing_portals((0, 16))
+    assert {p.to_map for p in out} == {(0, 9), (1, 0)}
+    inc = mem.incoming_portals((0, 16))
+    assert [p.from_cell for p in inc] == [(5, 0)]
