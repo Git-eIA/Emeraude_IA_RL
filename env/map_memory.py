@@ -25,6 +25,8 @@ class Portal:
     from_cell: tuple[int, int]
     direction: str
     to_map: tuple[int, int]
+    reversible: bool          # True = reversible overworld border, False = building warp
+    to_cell: tuple[int, int]  # cell landed on in to_map (coords do NOT continue across a border)
 
 
 @dataclass
@@ -71,18 +73,30 @@ class MapMemory:
         from_cell: tuple[int, int],
         direction: str,
         to_map: tuple[int, int],
+        reversible: bool,
+        to_cell: tuple[int, int],
     ) -> None:
         """Remember the door from from_map to to_map; also ensures the edge exists."""
         self._ensure_node(from_map)
         self._ensure_node(to_map)
         self._edges.add((from_map, to_map))
-        self._portals[(from_map, to_map)] = Portal(from_cell, direction, to_map)
+        self._portals[(from_map, to_map)] = Portal(
+            from_cell, direction, to_map, reversible, to_cell
+        )
 
     def portal(
         self, from_map: tuple[int, int], to_map: tuple[int, int]
     ) -> Portal | None:
         """The known crossing from from_map to to_map, or None if never recorded."""
         return self._portals.get((from_map, to_map))
+
+    def outgoing_portals(self, from_map: tuple[int, int]) -> tuple[Portal, ...]:
+        """Every recorded portal leaving `from_map`."""
+        return tuple(p for (f, _t), p in self._portals.items() if f == from_map)
+
+    def incoming_portals(self, to_map: tuple[int, int]) -> tuple[Portal, ...]:
+        """Every recorded portal arriving at `to_map`."""
+        return tuple(p for (_f, t), p in self._portals.items() if t == to_map)
 
     def node(self, map_id: tuple[int, int]) -> PlaceNode | None:
         return self.nodes.get(map_id)

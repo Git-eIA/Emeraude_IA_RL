@@ -134,7 +134,8 @@ def test_left_map_records_portal_when_memory_given() -> None:
     )
     assert result == "left_map"
     assert memory.portal((0, 0), (0, 1)) == Portal(
-        from_cell=(0, 0), direction="down", to_map=(0, 1)
+        from_cell=(0, 0), direction="down", to_map=(0, 1),
+        reversible=False, to_cell=(0, 1),
     )
 
 

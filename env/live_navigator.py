@@ -56,8 +56,11 @@ def navigate_to(
             if memory is not None:
                 landed = snapshot_settled(reader)
                 if landed is not None:
+                    # A live crossing is not step-back tested, so reversibility
+                    # cannot be proven here: record the cautious default False.
                     memory.record_portal(
-                        before.map_id, before.pos, direction, landed.map_id
+                        before.map_id, before.pos, direction, landed.map_id,
+                        False, landed.pos,
                     )
             return "left_map"
         if outcome == "blocked":
