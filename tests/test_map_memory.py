@@ -103,7 +103,10 @@ def test_record_and_read_portal() -> None:
     mem = MapMemory()
     mem.record_portal((0, 9), (5, 0), "up", (0, 16), reversible=True, to_cell=(5, 12))
     p = mem.portal((0, 9), (0, 16))
-    assert p == Portal(from_cell=(5, 0), direction="up", to_map=(0, 16), reversible=True, to_cell=(5, 12))
+    assert p == Portal(
+        from_cell=(5, 0), direction="up", to_map=(0, 16),
+        reversible=True, to_cell=(5, 12),
+    )
 
 
 def test_portal_is_none_for_unrecorded_pair() -> None:
