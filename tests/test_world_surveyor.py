@@ -120,3 +120,59 @@ def test_two_maps_linked_by_reversible_border() -> None:
     assert isinstance(report, SurveyReport)
     assert set(report.surveyed) == {a, b}
     assert report.failed == ()
+
+
+def _one_way_border(
+    a_map: tuple[int, int], a_cell: tuple[int, int], direction: str,
+    b_map: tuple[int, int], b_cell: tuple[int, int],
+) -> dict[tuple[tuple[int, int], tuple[int, int], str],
+          tuple[tuple[int, int], tuple[int, int]]]:
+    """A one-way building warp: a_map@a_cell --direction--> b_map@b_cell, no return."""
+    return {(a_map, a_cell, direction): (b_map, b_cell)}
+
+
+def test_chain_of_three_maps_surveyed_in_bfs_order() -> None:
+    a, b, c = (0, 0), (0, 1), (0, 2)
+    # Fully-sealed rooms; doors live in `borders` (checked before walls).
+    walls = _sealed_room(a, 2, 1) | _sealed_room(b, 2, 1) | _sealed_room(c, 2, 1)
+    borders = {
+        **_reversible_border(a, (1, 0), "right", b, (0, 0)),
+        **_reversible_border(b, (1, 0), "right", c, (0, 0)),
+    }
+    world = WorldGrid(start_map=a, start_cell=(0, 0), walls=walls, borders=borders)
+
+    report = survey_world(world, world, MapMemory(), WallMap(), max_maps=10)
+
+    assert report.surveyed == (a, b, c)
+    assert report.failed == ()
+
+
+def test_warp_only_map_is_logged_left_map_and_target_never_enqueued() -> None:
+    # Start map A's ONLY exit is a one-way building warp to H (down from (0,0)).
+    # map_map(A) probes the warp -> "left_map"; A is still counted surveyed and
+    # logged as map:left_map. H is a non-reversible target: never enqueued.
+    a, h = (0, 0), (5, 5)
+    walls = _sealed_room(a, 1, 1)          # single-cell room, fully sealed
+    borders = _one_way_border(a, (0, 0), "down", h, (0, 0))  # warp wins over the wall
+    world = WorldGrid(start_map=a, start_cell=(0, 0), walls=walls, borders=borders)
+
+    report = survey_world(world, world, MapMemory(), WallMap(), max_maps=10)
+
+    assert report.surveyed == (a,)                 # A surveyed despite the early exit
+    assert (a, "map:left_map") in report.failed    # map-side failure logged
+    assert h not in report.surveyed                # warp target never surveyed
+    assert all(m != h for (m, _r) in report.failed)  # nor even attempted
+
+
+def test_max_maps_stops_cleanly_with_partial_report() -> None:
+    a, b, c = (0, 0), (0, 1), (0, 2)
+    walls = _sealed_room(a, 2, 1) | _sealed_room(b, 2, 1) | _sealed_room(c, 2, 1)
+    borders = {
+        **_reversible_border(a, (1, 0), "right", b, (0, 0)),
+        **_reversible_border(b, (1, 0), "right", c, (0, 0)),
+    }
+    world = WorldGrid(start_map=a, start_cell=(0, 0), walls=walls, borders=borders)
+
+    report = survey_world(world, world, MapMemory(), WallMap(), max_maps=1)
+
+    assert report.surveyed == (a,)        # exactly one map surveyed then stopped
