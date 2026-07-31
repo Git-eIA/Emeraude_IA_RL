@@ -18,12 +18,23 @@ from env.pokemon_env import PokemonEmeraldEnv
 log = logging.getLogger("agent.train")
 
 STATE_PATH = Path("states/initial.state")
+EXPLORER_DIR = Path("states/explorer")
 
 
-def make_env(rom_path: str, initial_state: bytes, max_steps: int):
+def load_initial_states(truck: Path, frontier_dir: Path) -> list[bytes]:
+    """Truck state first, then every frontier savestate (Go-Explore Palier 0)."""
+    if not truck.is_file():
+        raise FileNotFoundError(truck)
+    states = [truck.read_bytes()]
+    if frontier_dir.is_dir():
+        states += [p.read_bytes() for p in sorted(frontier_dir.glob("*.state"))]
+    return states
+
+
+def make_env(rom_path: str, initial_states: list[bytes], max_steps: int):
     def _init() -> Monitor:
         # Monitor records episode rewards/lengths so SB3 logs rollout/ep_rew_mean.
-        env = PokemonEmeraldEnv(GbaEmulator(rom_path), [initial_state], max_steps=max_steps)
+        env = PokemonEmeraldEnv(GbaEmulator(rom_path), initial_states, max_steps=max_steps)
         return Monitor(env)
 
     return _init
@@ -50,9 +61,10 @@ def main() -> int:
         log.error("Missing %s — create it with tools/play_interactive.py", STATE_PATH)
         return 1
 
-    initial_state = STATE_PATH.read_bytes()
+    initial_states = load_initial_states(STATE_PATH, EXPLORER_DIR)
+    log.info("Reset pool: %d state(s) (truck + %d frontier)", len(initial_states), len(initial_states) - 1)
     vec = SubprocVecEnv(
-        [make_env(rom, initial_state, args.max_steps) for _ in range(args.envs)]
+        [make_env(rom, initial_states, args.max_steps) for _ in range(args.envs)]
     )
     device = pick_device()
     log.info("Training on device=%s with %d envs", device, args.envs)
