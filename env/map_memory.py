@@ -53,8 +53,8 @@ class MapMemory:
         self._portals: dict[
             tuple[tuple[int, int], tuple[int, int]], Portal
         ] = {}
-        # map_id -> cell where a heal was observed (last-write-wins).
-        self._healing_cells: dict[tuple[int, int], tuple[int, int]] = {}
+        # recognition label -> {map_id: cell} (last-write-wins per map).
+        self._labeled_cells: dict[str, dict[tuple[int, int], tuple[int, int]]] = {}
 
     def observe(self, snapshot: WorldSnapshot, event: WorldEvent) -> None:
         node = self._ensure_node(snapshot.map_id)
@@ -63,9 +63,10 @@ class MapMemory:
         self._prev_map_id = snapshot.map_id
         if event.healed:
             node.labels.add("healing_spot")
-            self._healing_cells[snapshot.map_id] = snapshot.pos
+            self._labeled_cells.setdefault("healing_spot", {})[snapshot.map_id] = snapshot.pos
         if event.encounter_started:
             node.labels.add("has_grass")
+            self._labeled_cells.setdefault("has_grass", {})[snapshot.map_id] = snapshot.pos
 
     def edges(self) -> set[tuple[tuple[int, int], tuple[int, int]]]:
         return set(self._edges)
@@ -101,9 +102,15 @@ class MapMemory:
         """Every recorded portal arriving at `to_map`."""
         return tuple(p for (_f, t), p in self._portals.items() if t == to_map)
 
+    def cells_labeled(
+        self, label: str
+    ) -> list[tuple[tuple[int, int], tuple[int, int]]]:
+        """All (map_id, cell) pairs remembered under the given recognition label."""
+        return [(map_id, cell) for map_id, cell in self._labeled_cells.get(label, {}).items()]
+
     def healing_spots(self) -> list[tuple[tuple[int, int], tuple[int, int]]]:
-        """Known healing locations as (map_id, cell); empty if none learned yet."""
-        return [(map_id, cell) for map_id, cell in self._healing_cells.items()]
+        """Known healing locations as (map_id, cell); shortcut for cells_labeled('healing_spot')."""
+        return self.cells_labeled("healing_spot")
 
     def node(self, map_id: tuple[int, int]) -> PlaceNode | None:
         return self.nodes.get(map_id)
