@@ -79,19 +79,23 @@ class RecorderCallback(BaseCallback):
 
     # --- lifecycle -----------------------------------------------------------
     def _on_training_start(self) -> None:
-        n = self.training_env.num_envs
-        self._seen = [set() for _ in range(n)]
-        self._clip_remaining = [0] * n
-        self._clip_tag = [""] * n
-        for sub in ("frames", "clips", "checkpoints"):
-            (self._run_dir / sub).mkdir(parents=True, exist_ok=True)
-        self._steps_fh = (self._run_dir / "steps.csv").open("w", newline="")
-        self._steps_writer = csv.writer(self._steps_fh)
-        self._steps_writer.writerow(_STEPS_HEADER)
-        self._milestones_fh = (self._run_dir / "milestones.csv").open("w", newline="")
-        self._milestones_writer = csv.writer(self._milestones_fh)
-        self._milestones_writer.writerow(_MILESTONES_HEADER)
-        self._write_run_json(start=True)
+        try:
+            n = self.training_env.num_envs
+            self._seen = [set() for _ in range(n)]
+            self._clip_remaining = [0] * n
+            self._clip_tag = [""] * n
+            for sub in ("frames", "clips", "checkpoints"):
+                (self._run_dir / sub).mkdir(parents=True, exist_ok=True)
+            self._steps_fh = (self._run_dir / "steps.csv").open("w", newline="")
+            self._steps_writer = csv.writer(self._steps_fh)
+            self._steps_writer.writerow(_STEPS_HEADER)
+            self._milestones_fh = (self._run_dir / "milestones.csv").open("w", newline="")
+            self._milestones_writer = csv.writer(self._milestones_fh)
+            self._milestones_writer.writerow(_MILESTONES_HEADER)
+            self._write_run_json(start=True)
+        except Exception as exc:
+            log.warning("capture init failed, disabling: %s", exc)
+            self._disabled = True
 
     def _on_step(self) -> bool:
         if self._disabled:
@@ -127,13 +131,13 @@ class RecorderCallback(BaseCallback):
 
     # --- records -------------------------------------------------------------
     def _record_numeric(self, t: int, infos, rewards) -> None:
-        for i, info in enumerate(infos):
+        for i, (info, reward) in enumerate(zip(infos, rewards)):
             m = info.get("map")
             map_g, map_n = (m if m else ("", ""))
             pos = info.get("pos")
             x, y = (pos if pos else ("", ""))
             self._steps_writer.writerow(
-                [t, i, map_g, map_n, x, y, float(rewards[i]), info.get("visited_tiles", "")]
+                [t, i, map_g, map_n, x, y, float(reward), info.get("visited_tiles", "")]
             )
 
     def _record_milestones(self, t: int, infos) -> None:
