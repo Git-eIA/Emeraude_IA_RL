@@ -65,3 +65,10 @@ def test_in_battle_true_when_a_battle_is_active() -> None:
 def test_in_battle_false_out_of_battle() -> None:
     reader = WorldReader(_battle_read(in_battle=False))
     assert reader.in_battle() is False
+
+
+def test_party_levels_passthrough_returns_ram_reader_levels() -> None:
+    emu = FakeEmulator()
+    emu.party_count = 2
+    emu.party_levels = [7, 5]
+    assert _reader(emu).party_levels() == [7, 5]

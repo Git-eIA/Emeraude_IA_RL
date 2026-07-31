@@ -3,8 +3,9 @@
 The Strategist (chef) emits an Order naming a destination + a mode + a combat
 directive; the Explorer (worker) executes it. "advance" navigates via travel_to;
 "heal" travels to a known healing spot and presses A until the party is full;
-"grind" travels to a known grass cell and treads until a wild battle starts.
-The combat directive is stored for a future Fighter hookup.
+"grind" travels to a known grass cell and treads until a wild battle starts, then
+the Fighter plays it; "level_up" loops grind to a target average level, healing
+when the party gets low. The combat directive is stored for a future Fighter use.
 No Strategist, no reward here.
 
 ROM smoke for grind is deferred: it needs a savestate standing on/near grass
@@ -18,7 +19,7 @@ from typing import Any
 from emulator import buttons
 from env.battle_player import play_battle
 from env.encounter_detector import EncounterWatcher
-from env.heal_detector import party_is_full
+from env.heal_detector import party_is_full, party_needs_heal
 from env.map_traveler import travel_to
 
 
@@ -57,17 +58,22 @@ def execute_order(
     max_hops: int = 20,
     move_type_fn: Any = None,
     predict: Any = None,
+    target_level: int = 0,
+    heal_threshold: float = 0.4,
+    max_cycles: int = 50,
 ) -> str:
     """Execute an order dispatched by the Strategist.
 
     heal and grind are resolved first and ignore `destination` (pure intention:
     the healing spot / grass cell comes from memory, not the order's name).
-    advance requires `destination` to be in DESTINATIONS.
+    advance requires `destination` to be in DESTINATIONS. level_up loops grind to
+    the given target_level (mean of the party), healing when party_needs_heal.
 
     Returns "unknown_destination" | "no_healing_spot_known" | "no_grass_spot_known" |
     one of travel_to's outcomes ("arrived" | "unknown_route" | "unreachable" |
     "lost" | "timeout") | "healed" | "heal_failed" | "encounter_started" |
     "no_encounter" | a play_battle outcome ("won" | "lost" | "battle_timeout").
+    level_up adds: "leveled_up" | "grind_exhausted".
     """
     if order.mode == "heal":
         return _execute_heal(emulator, reader, memory, wallmap, max_hops=max_hops)
@@ -75,6 +81,13 @@ def execute_order(
         return _execute_grind(
             emulator, reader, memory, wallmap,
             max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
+        )
+    if order.mode == "level_up":
+        return _execute_level_up(
+            emulator, reader, memory, wallmap,
+            target_level=target_level, heal_threshold=heal_threshold,
+            max_cycles=max_cycles, max_hops=max_hops,
+            move_type_fn=move_type_fn, predict=predict,
         )
     dest = DESTINATIONS.get(order.destination)
     if dest is None:
@@ -162,3 +175,53 @@ def _walk_until_encounter(emulator: Any, reader: Any) -> str:
         emulator.step(directions[i % len(directions)], GRIND_STEP_FRAMES)
         emulator.step(0, GRIND_RELEASE_FRAMES)   # release between presses (GBA debounce)
     return "encounter_started" if reader.in_battle() else "no_encounter"
+
+
+def _reached(levels: list[int], target: int) -> bool:
+    """True when the party's mean level is at or above the target."""
+    return bool(levels) and sum(levels) / len(levels) >= target
+
+
+def _execute_level_up(
+    emulator: Any,
+    reader: Any,
+    memory: Any,
+    wallmap: Any,
+    target_level: int,
+    heal_threshold: float = 0.4,
+    max_cycles: int = 50,
+    max_hops: int = 20,
+    move_type_fn: Any = None,
+    predict: Any = None,
+) -> str:
+    """Grind wild battles until the party's mean level reaches target_level,
+    healing whenever party_needs_heal fires. Composes _execute_grind (one battle)
+    and _execute_heal (one heal); the loop is bounded by max_cycles.
+
+    Returns "leveled_up" | "grind_exhausted" | a grind pass-through
+    ("no_grass_spot_known" | "no_encounter"-driven continue | "lost" |
+    "battle_timeout" | travel outcomes) | a heal pass-through
+    ("no_healing_spot_known" | "heal_failed" | travel outcomes).
+
+    NOTE: expects a Fighter (move_type_fn + predict). Without them the first
+    _execute_grind returns "encounter_started", surfaced verbatim.
+    """
+    for _ in range(max_cycles):
+        if _reached(reader.party_levels(), target_level):
+            return "leveled_up"
+        result = _execute_grind(
+            emulator, reader, memory, wallmap,
+            max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
+        )
+        if result == "won":
+            if party_needs_heal(reader.party_hp(), heal_threshold):
+                healed = _execute_heal(
+                    emulator, reader, memory, wallmap, max_hops=max_hops
+                )
+                if healed != "healed":
+                    return healed
+        elif result == "no_encounter":
+            continue   # no battle this cycle (RNG); retry, budget-bounded
+        else:
+            return result
+    return "leveled_up" if _reached(reader.party_levels(), target_level) else "grind_exhausted"

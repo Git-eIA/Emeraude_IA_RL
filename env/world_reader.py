@@ -40,6 +40,10 @@ class WorldReader:
         """Passthrough to the RAM reader: (current, max) HP per party member."""
         return self._reader.party_hp()
 
+    def party_levels(self) -> list[int]:
+        """Passthrough to the RAM reader: level of each party member in order."""
+        return self._reader.party_levels()
+
     def in_battle(self) -> bool:
         """True while a wild/trainer battle is active."""
         return self._battle.battle_state().in_battle
