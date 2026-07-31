@@ -61,6 +61,9 @@ def main() -> int:
 
     run_id = args.run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
     run_dir = Path("captures") / run_id
+    # Guarantee the checkpoint dir exists for the final save, even with --no-capture
+    # on a run too short to trigger CheckpointCallback's own mkdir.
+    (run_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
 
     initial_state = STATE_PATH.read_bytes()
     vec = SubprocVecEnv(
