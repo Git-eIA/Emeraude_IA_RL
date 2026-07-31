@@ -27,7 +27,7 @@ class Order:
 # Cells are known landmarks; fix them here if one turns out wrong.
 DESTINATIONS: dict[str, tuple[tuple[int, int], tuple[int, int]]] = {
     "littleroot": ((0, 9), (3, 10)),   # Bourg-en-Vol, truck landing cell
-    "route_101": ((0, 16), (5, 12)),   # Route 101, south entrance from Littleroot
+    "route_101": ((0, 16), (5, 12)),   # Route 101 south entrance (cell unverified)
 }
 
 

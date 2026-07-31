@@ -54,8 +54,8 @@ _DELTAS: dict[str, tuple[int, int]] = {
 class NamedWorld:
     """Hidden multi-map grid that plays emulator (step) and reader (snapshot).
 
-    `borders` maps (map_id, cell, direction) -> (next_map, entry_cell). Movement
-    inside a map is free unless the edge is in `walls`.
+    `borders` maps (map_id, cell, direction) -> (next_map, entry_cell). All
+    other moves are free (no wall simulation needed for these tests).
     """
 
     def __init__(
