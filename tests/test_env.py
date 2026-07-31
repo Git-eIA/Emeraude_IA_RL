@@ -137,3 +137,19 @@ def test_intro_chain_pays_each_milestone_once():
     _, reward, _, _, info = env.step(0)
     assert reward >= 10.0
     assert "north_littleroot" in info["milestones"]
+
+
+def test_info_exposes_pos_and_step():
+    from tests.conftest import FakeEmulator
+    from env.pokemon_env import PokemonEmeraldEnv
+
+    env = PokemonEmeraldEnv(FakeEmulator(), initial_state=b"x", max_steps=10)
+    _, info = env.reset()
+    assert info["pos"] == (5, 5)  # FakeEmulator starts at (5, 5)
+    assert info["step"] == 0
+
+    # action index for "right" moves x from 5 -> 6
+    right = PokemonEmeraldEnv.ACTIONS.index("right")
+    _, _, _, _, info = env.step(right)
+    assert info["pos"] == (6, 5)
+    assert info["step"] == 1

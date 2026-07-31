@@ -101,5 +101,7 @@ class PokemonEmeraldEnv(gym.Env):
             "visited_tiles": self._tracker.visited_count,
             "badges": state.badges if state else 0,
             "map": (state.map_group, state.map_num) if state else None,
+            "pos": (state.x, state.y) if state else None,
+            "step": self._step_count,
             "milestones": sorted(self._milestones.fired),
         }
