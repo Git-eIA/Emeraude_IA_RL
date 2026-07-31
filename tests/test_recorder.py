@@ -96,3 +96,46 @@ def test_seen_milestone_not_duplicated(tmp_path):
     rows = list(csv.reader((tmp_path / "run1" / "milestones.csv").open()))
     assert len(rows) == 2  # header + exactly one milestone row
 
+
+# ---------------------------------------------------------------------------
+# Batch B (Task 4) — frame sampling, post-roll clips, disk cap
+# ---------------------------------------------------------------------------
+
+
+def _count(path: Path) -> int:
+    return sum(1 for _ in path.rglob("*.jpg")) if path.exists() else 0
+
+
+def test_frames_sampled_at_cadence(tmp_path):
+    cb = _make_cb(tmp_path, n_envs=2, capture_every=50)
+    _step(cb, t=50, infos=[_info(), _info()], rewards=[0.0, 0.0])   # bucket 1 -> sample
+    _step(cb, t=52, infos=[_info(), _info()], rewards=[0.0, 0.0])   # still bucket 1 -> no sample
+    _step(cb, t=100, infos=[_info(), _info()], rewards=[0.0, 0.0])  # bucket 2 -> sample
+    frames = tmp_path / "run1" / "frames"
+    assert (frames / "env0" / "000000050.jpg").exists()
+    assert (frames / "env0" / "000000100.jpg").exists()
+    assert not (frames / "env0" / "000000052.jpg").exists()
+    assert _count(frames / "env0") == 2 and _count(frames / "env1") == 2
+
+
+def test_clip_writes_clip_len_frames(tmp_path):
+    cb = _make_cb(tmp_path, n_envs=1, clip_len=3, capture_every=10_000)
+    _step(cb, t=1, infos=[_info(milestones=("m",))], rewards=[0.0])  # arm + frame seq 0
+    _step(cb, t=2, infos=[_info(milestones=("m",))], rewards=[0.0])  # seq 1
+    _step(cb, t=3, infos=[_info(milestones=("m",))], rewards=[0.0])  # seq 2, remaining -> 0
+    _step(cb, t=4, infos=[_info(milestones=("m",))], rewards=[0.0])  # nothing
+    clip = tmp_path / "run1" / "clips" / "m_1" / "env0"
+    assert sorted(p.name for p in clip.glob("*.jpg")) == ["0000.jpg", "0001.jpg", "0002.jpg"]
+
+
+def test_disk_cap_stops_frames_keeps_numeric(tmp_path):
+    cb = _make_cb(tmp_path, n_envs=1, capture_every=1, max_frame_gb=1e-9)  # ~1 byte cap
+    _step(cb, t=1, infos=[_info(pos=(1, 1))], rewards=[0.0])  # writes 1 frame, trips cap
+    _step(cb, t=2, infos=[_info(pos=(2, 2))], rewards=[0.0])  # frames disabled
+    assert cb._disabled_frames is True
+    assert _count(tmp_path / "run1" / "frames") == 1
+    cb._on_training_end()
+    rows = list(csv.reader((tmp_path / "run1" / "steps.csv").open()))
+    assert len(rows) == 3  # header + 2 numeric rows (numeric kept)
+
+
