@@ -3,8 +3,9 @@
 The Strategist (chef) emits an Order naming a destination + a mode + a combat
 directive; the Explorer (worker) executes it. "advance" navigates via travel_to;
 "heal" travels to a known healing spot and presses A until the party is full;
-"grind" travels to a known grass cell and treads until a wild battle starts.
-The combat directive is stored for a future Fighter hookup.
+"grind" travels to a known grass cell and treads until a wild battle starts, then
+the Fighter plays it; "level_up" loops grind to a target average level, healing
+when the party gets low. The combat directive is stored for a future Fighter use.
 No Strategist, no reward here.
 
 ROM smoke for grind is deferred: it needs a savestate standing on/near grass
@@ -65,12 +66,14 @@ def execute_order(
 
     heal and grind are resolved first and ignore `destination` (pure intention:
     the healing spot / grass cell comes from memory, not the order's name).
-    advance requires `destination` to be in DESTINATIONS.
+    advance requires `destination` to be in DESTINATIONS. level_up loops grind to
+    the given target_level (mean of the party), healing when party_needs_heal.
 
     Returns "unknown_destination" | "no_healing_spot_known" | "no_grass_spot_known" |
     one of travel_to's outcomes ("arrived" | "unknown_route" | "unreachable" |
     "lost" | "timeout") | "healed" | "heal_failed" | "encounter_started" |
     "no_encounter" | a play_battle outcome ("won" | "lost" | "battle_timeout").
+    level_up adds: "leveled_up" | "grind_exhausted".
     """
     if order.mode == "heal":
         return _execute_heal(emulator, reader, memory, wallmap, max_hops=max_hops)
