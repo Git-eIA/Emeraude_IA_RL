@@ -24,12 +24,15 @@ def test_reset_loads_initial_state_and_returns_obs():
     assert obs.dtype == np.uint8
 
 
-def test_moving_to_new_tile_gives_positive_reward():
+def test_moving_to_new_tile_pays_only_time_penalty():
+    # Palier 1: no per-tile bonus. A fresh tile pays just TIME_PENALTY, but still
+    # beats a revisit (which also eats REVISIT_PENALTY).
     env = make_env()
     env.reset(seed=0)
     right = env.ACTIONS.index("right")
     _, reward, _, _, _ = env.step(right)
-    assert reward > 0.0
+    assert reward == TIME_PENALTY
+    assert reward > REVISIT_PENALTY + TIME_PENALTY
 
 
 def test_staying_put_pays_revisit_and_time_penalty():
@@ -63,8 +66,9 @@ def test_starter_terminates_episode_with_jackpot():
     emu.party_count = 1
     emu.party_levels = [5]
     _, reward, terminated, truncated, info = env.step(0)
-    # starter +100, level sum 0->5 gives +25, plus any exploration
-    assert reward >= 125.0
+    # starter +100, level sum 0->5 gives +25; Palier 1 tile bonus is 0, so the
+    # only shaving is TIME_PENALTY.
+    assert reward >= 125.0 + TIME_PENALTY
     assert terminated is True
     assert truncated is False
     assert "starter_obtained" in info["milestones"]
@@ -76,7 +80,7 @@ def test_route_101_milestone_pays_without_terminating():
     env.reset()
     emu.map_group, emu.map_num = 0, 16
     _, reward, terminated, _, info = env.step(0)
-    assert reward >= 20.0
+    assert reward >= 20.0 + TIME_PENALTY
     assert terminated is False
     assert "reach_route_101" in info["milestones"]
 
@@ -98,12 +102,12 @@ def test_intro_chain_pays_each_milestone_once():
 
     emu.map_group, emu.map_num = 0, 9  # exit the truck into Littleroot
     _, reward, _, _, info = env.step(0)
-    assert reward >= 5.0
+    assert reward >= 5.0 + TIME_PENALTY
     assert "exit_truck" in info["milestones"]
 
     emu.map_group, emu.map_num = 1, 0  # enter the player's house (Brendan's)
     _, reward, _, _, info = env.step(0)
-    assert reward >= 5.0
+    assert reward >= 5.0 + TIME_PENALTY
     assert "enter_house" in info["milestones"]
 
     emu.clock_set = True  # set the bedroom wall clock
@@ -124,7 +128,7 @@ def test_intro_chain_pays_each_milestone_once():
 
     emu.map_group, emu.map_num = 1, 3  # upstairs to the rival's bedroom
     _, reward, _, _, info = env.step(0)
-    assert reward >= 5.0
+    assert reward >= 5.0 + TIME_PENALTY
     assert "rival_upstairs" in info["milestones"]
 
     emu.town_state = 1  # Pokeball cutscene watched: exit unlocked
@@ -135,7 +139,7 @@ def test_intro_chain_pays_each_milestone_once():
     emu.map_group, emu.map_num = 0, 9
     emu.y = 1  # walk up to the northern exit
     _, reward, _, _, info = env.step(0)
-    assert reward >= 10.0
+    assert reward >= 10.0 + TIME_PENALTY
     assert "north_littleroot" in info["milestones"]
 
 

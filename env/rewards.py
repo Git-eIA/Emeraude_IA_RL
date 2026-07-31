@@ -5,9 +5,12 @@ from env.game_state import PlayerState
 
 # Small enough that milestones dominate; large enough to make loitering lose.
 REVISIT_PENALTY = -0.01
-# Halved from 1.0 after the 10.5M run: at +1/tile the agent re-learned to farm
-# tiles instead of following the milestone chain (M6.2 regression).
-NEW_TILE_REWARD = 0.5
+# Palier 1: cut to 0.0. Even at +0.5/tile the agent kept farming fresh tiles in
+# large towns instead of following the milestone chain, and a strong 9.9M
+# checkpoint collapsed to route_101 0/10 after more training (detachment). With
+# no per-tile income, the milestone chain is the only positive reward worth
+# chasing; a new tile now pays only TIME_PENALTY but still beats a revisit.
+NEW_TILE_REWARD = 0.0
 # Flat cost per step: makes the shortest path to the chain the best-paying
 # one (-82 max over a 4096-step episode vs +290 for the full chain).
 TIME_PENALTY = -0.02
