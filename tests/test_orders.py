@@ -543,3 +543,39 @@ def test_level_up_already_at_target_fights_nothing() -> None:
     )
     assert result == "leveled_up"
     assert world.battles_won == 0
+
+
+def test_level_up_detours_to_heal_when_hp_is_low() -> None:
+    # After each win the single member drops to 1/5 = 0.2 < 0.4 -> heal, then resume.
+    world = FarmWorld(start_level=9, target_hp_after=[(1, 5)])
+    order = Order(destination="route_101", mode="level_up", combat="win")
+    result = execute_order(
+        order, world, world, _farm_memory(), WallMap(),
+        target_level=10, **_FIGHTER,
+    )
+    assert result == "leveled_up"
+    assert world.battles_won == 1
+    assert world.heals >= 1
+    assert all(cur == mx for cur, mx in world.party_hp())   # healed to full
+
+
+def test_level_up_heals_on_ko_even_when_totals_are_fine() -> None:
+    # 5/10 total is above threshold, but a KO'd member forces the heal.
+    world = FarmWorld(start_level=9, target_hp_after=[(0, 5), (5, 5)], party_size=2)
+    order = Order(destination="route_101", mode="level_up", combat="win")
+    result = execute_order(
+        order, world, world, _farm_memory(), WallMap(),
+        target_level=10, heal_threshold=0.4, **_FIGHTER,
+    )
+    assert result == "leveled_up"
+    assert world.heals >= 1
+
+
+def test_level_up_aborts_when_heal_needed_but_no_spot_known() -> None:
+    world = FarmWorld(start_level=1, target_hp_after=[(1, 5)])
+    order = Order(destination="route_101", mode="level_up", combat="win")
+    result = execute_order(
+        order, world, world, _farm_memory(with_healing_spot=False), WallMap(),
+        target_level=10, **_FIGHTER,
+    )
+    assert result == "no_healing_spot_known"
