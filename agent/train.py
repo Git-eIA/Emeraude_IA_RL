@@ -23,7 +23,7 @@ STATE_PATH = Path("states/initial.state")
 def make_env(rom_path: str, initial_state: bytes, max_steps: int):
     def _init() -> Monitor:
         # Monitor records episode rewards/lengths so SB3 logs rollout/ep_rew_mean.
-        env = PokemonEmeraldEnv(GbaEmulator(rom_path), initial_state, max_steps=max_steps)
+        env = PokemonEmeraldEnv(GbaEmulator(rom_path), [initial_state], max_steps=max_steps)
         return Monitor(env)
 
     return _init

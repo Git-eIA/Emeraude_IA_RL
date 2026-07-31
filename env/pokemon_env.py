@@ -32,7 +32,7 @@ _ACTION_KEYS: dict[str, int] = {
 
 
 class PokemonEmeraldEnv(gym.Env):
-    """Pixels in, exploration reward out. Episodes start from a fixed savestate."""
+    """Pixels in, exploration reward out. Episodes start from a random savestate."""
 
     metadata = {"render_modes": ["rgb_array"]}
     ACTIONS = list(_ACTION_KEYS)
@@ -40,12 +40,14 @@ class PokemonEmeraldEnv(gym.Env):
     def __init__(
         self,
         emulator: Any,
-        initial_state: bytes,
+        initial_states: list[bytes],
         max_steps: int = 2048,
     ) -> None:
         super().__init__()
+        if not initial_states:
+            raise ValueError("initial_states must be non-empty")
         self.emulator = emulator
-        self._initial_state = initial_state
+        self._initial_states = initial_states
         self._max_steps = max_steps
         self._reader = EmeraldReader(emulator.read_bytes)
         self._tracker = ExplorationTracker()
@@ -60,7 +62,8 @@ class PokemonEmeraldEnv(gym.Env):
         self, *, seed: int | None = None, options: dict[str, Any] | None = None
     ) -> tuple[np.ndarray, dict[str, Any]]:
         super().reset(seed=seed)
-        self.emulator.load_state(self._initial_state)
+        idx = int(self.np_random.integers(len(self._initial_states)))
+        self.emulator.load_state(self._initial_states[idx])
         self._tracker.reset()
         self._milestones.reset()
         self._levels.reset()

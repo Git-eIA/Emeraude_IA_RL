@@ -35,7 +35,7 @@ def main() -> int:
         return 1
 
     env = PokemonEmeraldEnv(
-        GbaEmulator(rom), Path(args.state).read_bytes(), max_steps=args.max_steps
+        GbaEmulator(rom), [Path(args.state).read_bytes()], max_steps=args.max_steps
     )
     model = PPO.load(args.model, device="cpu")
 
