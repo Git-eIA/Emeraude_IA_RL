@@ -579,3 +579,24 @@ def test_level_up_aborts_when_heal_needed_but_no_spot_known() -> None:
         target_level=10, **_FIGHTER,
     )
     assert result == "no_healing_spot_known"
+
+
+def test_level_up_exhausts_budget_without_reaching_target() -> None:
+    world = FarmWorld(start_level=5, target_hp_after=[(5, 5)])  # full: never heals
+    order = Order(destination="route_101", mode="level_up", combat="win")
+    result = execute_order(
+        order, world, world, _farm_memory(), WallMap(),
+        target_level=20, max_cycles=2, **_FIGHTER,
+    )
+    assert result == "grind_exhausted"
+    assert world.battles_won == 2   # bounded by max_cycles
+
+
+def test_level_up_aborts_on_a_lost_battle() -> None:
+    world = FarmWorld(start_level=5, target_hp_after=[(5, 5)], can_win=False)
+    order = Order(destination="route_101", mode="level_up", combat="win")
+    result = execute_order(
+        order, world, world, _farm_memory(), WallMap(),
+        target_level=10, **_FIGHTER,
+    )
+    assert result == "lost"
