@@ -152,3 +152,29 @@ def test_outgoing_and_incoming_portals() -> None:
     assert {p.to_map for p in out} == {(0, 9), (1, 0)}
     inc = mem.incoming_portals((0, 16))
     assert [p.from_cell for p in inc] == [(5, 0)]
+
+
+def test_observe_healed_records_the_cell_and_healing_spots_returns_it() -> None:
+    mem = MapMemory()
+    snap = WorldSnapshot(map_id=(0, 9), pos=(3, 10), tile_behavior=None)
+    mem.observe(snap, WorldEvent(healed=True))
+
+    node = mem.node((0, 9))
+    assert node is not None and "healing_spot" in node.labels
+    assert mem.healing_spots() == [((0, 9), (3, 10))]
+
+
+def test_healing_spots_empty_without_a_heal() -> None:
+    mem = MapMemory()
+    mem.observe(
+        WorldSnapshot(map_id=(0, 9), pos=(3, 10), tile_behavior=None),
+        WorldEvent(),
+    )
+    assert mem.healing_spots() == []
+
+
+def test_healing_cell_is_last_write_wins_on_same_map() -> None:
+    mem = MapMemory()
+    mem.observe(WorldSnapshot((0, 9), (3, 10), None), WorldEvent(healed=True))
+    mem.observe(WorldSnapshot((0, 9), (4, 11), None), WorldEvent(healed=True))
+    assert mem.healing_spots() == [((0, 9), (4, 11))]
