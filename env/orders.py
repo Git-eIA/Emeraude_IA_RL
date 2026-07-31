@@ -67,7 +67,7 @@ def execute_order(
     Returns "unknown_destination" | "no_healing_spot_known" | "no_grass_spot_known" |
     one of travel_to's outcomes ("arrived" | "unknown_route" | "unreachable" |
     "lost" | "timeout") | "healed" | "heal_failed" | "encounter_started" |
-    "no_encounter" | "won" | "lost" | "battle_timeout".
+    "no_encounter" | a play_battle outcome ("won" | "lost" | "battle_timeout").
     """
     if order.mode == "heal":
         return _execute_heal(emulator, reader, memory, wallmap, max_hops=max_hops)
@@ -132,7 +132,8 @@ def _execute_grind(
     Fighter is supplied—play the battle to an outcome.
 
     Returns "no_grass_spot_known" | a travel_to pass-through | "no_encounter" |
-    "encounter_started" (no Fighter) | "won" | "lost" | "battle_timeout".
+    "encounter_started" (no Fighter) | a play_battle outcome
+    ("won" | "lost" | "battle_timeout").
     """
     spots = memory.cells_labeled("has_grass")
     if not spots:
