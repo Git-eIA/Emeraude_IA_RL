@@ -14,6 +14,20 @@ def party_is_full(hp: list[tuple[int, int]]) -> bool:
     return all(cur >= mx for cur, mx in hp)
 
 
+def party_needs_heal(hp: list[tuple[int, int]], threshold: float) -> bool:
+    """True if any member has fainted (0 HP) OR the party's total HP fraction is
+    below `threshold`. False for an empty party. Mixed trigger: a KO forces a
+    heal even when the totals look fine; a low total forces a heal even with
+    nobody KO'd."""
+    if not hp:
+        return False
+    if any(cur == 0 for cur, _ in hp):
+        return True
+    total_cur = sum(cur for cur, _ in hp)
+    total_max = sum(mx for _, mx in hp)
+    return total_max > 0 and total_cur / total_max < threshold
+
+
 class HealWatcher:
     """Fires once on the step where the party goes from not-full to full HP."""
 
