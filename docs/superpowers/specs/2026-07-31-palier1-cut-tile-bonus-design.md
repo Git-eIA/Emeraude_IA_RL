@@ -65,3 +65,30 @@ dedup milestones by final set.
 No potential-based shaping, no per-episode cap, no decay schedule, no reward
 change beyond the single tile-bonus constant. Those are fallbacks only if this
 clean removal is inconclusive.
+
+## Result — NO-GO, and the whole Go-Explore premise was misdiagnosed
+
+Jalon eval (10 stochastic episodes, `max_steps=4096`, from the truck):
+
+| milestone | resume 9.9M | P0 multi-reset (0.5) | P1 cut bonus (0.0) | control (0.5, truck) |
+|---|---|---|---|---|
+| enter_rival_house | 8/10 | 4/10 | 0/10 | 10/10 |
+| meet_rival | 8/10 | 1/10 | 0/10 | 9/10 |
+| reach_route_101 | 7/10 | 0/10 | 0/10 | 9/10 |
+| starter_obtained | 7/10 | 0/10 | 0/10 | 9/10 |
+
+- **Palier 1 (cut bonus to 0.0): NO-GO, worse than Palier 0.** Every episode
+  stalled at `back_outside`, 0/10 on the whole upper chain.
+- **The control decides it.** Resuming the *same* 9.9M with the *original*
+  recipe (0.5 tile bonus, truck-only) did not collapse — it improved 7/10 -> 9/10
+  and finished the chain fast (~2000 steps, not farming to 4096).
+- Therefore: (1) "continued training degrades" is false — the original recipe
+  improves; (2) both interventions were net-harmful (multi-reset hurt, cutting
+  the bonus destroyed exploration); (3) the tile bonus is load-bearing, not
+  hackable in practice, and the feared tile-farming does not actually dominate.
+
+**Action:** the Palier 1 commit (`9643842`) is reverted — `NEW_TILE_REWARD`
+restored to `0.5` and the tests restored. The control produced a fresh strong
+Explorer at `captures/control05/checkpoints/ppo_emerald_final` (9/10). The good
+`checkpoints/ppo_emerald_final.zip` (10/10 baseline) remains restored. Reset pool
+stays truck-only (`states/explorer/` kept aside as `states/explorer_palier0_bak/`).

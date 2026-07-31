@@ -21,9 +21,9 @@ def test_new_tile_rewards_once():
     assert tracker.update(state(2, 1)) == NEW_TILE_REWARD
 
 
-def test_new_tile_gives_no_exploration_bonus():
-    # Palier 1: the per-tile bonus is cut so fresh tiles can never be farmed.
-    assert NEW_TILE_REWARD == 0.0
+def test_new_tile_reward_stays_below_smallest_milestone():
+    # Anti-farming: a full episode of fresh tiles must not outweigh the chain.
+    assert 0.0 < NEW_TILE_REWARD <= 0.5
 
 
 def test_same_coords_on_different_map_are_distinct():
