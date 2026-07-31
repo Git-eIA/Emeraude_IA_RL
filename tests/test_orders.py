@@ -87,6 +87,10 @@ class NamedWorld:
         # Always full: watcher stays quiet, no healing behaviour change.
         return [(1, 1)]
 
+    def in_battle(self) -> bool:
+        # No battle: EncounterWatcher stays quiet — no spurious grass learned.
+        return False
+
 
 def test_advance_to_same_map_destination_arrives() -> None:
     world = NamedWorld(start_map=(0, 9), start_cell=(0, 10))
@@ -147,6 +151,10 @@ class HealWorld:
     def party_hp(self) -> list[tuple[int, int]]:
         full = self._a_count >= self._to_full
         return [(5, 5)] if full else [(2, 5)]
+
+    def in_battle(self) -> bool:
+        # No battle: EncounterWatcher stays quiet — no spurious grass learned.
+        return False
 
 
 def test_heal_without_known_spot_returns_no_healing_spot_known() -> None:

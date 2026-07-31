@@ -58,6 +58,10 @@ class WorldGrid:
         # Always full: watcher stays quiet, no healing behaviour change.
         return [(1, 1)]
 
+    def in_battle(self) -> bool:
+        # No battle: EncounterWatcher stays quiet — no spurious grass learned.
+        return False
+
 
 def _sealed_room(
     map_id: tuple[int, int], width: int, height: int
