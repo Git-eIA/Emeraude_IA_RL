@@ -9,7 +9,7 @@ from tests.conftest import FakeEmulator
 
 
 def make_env(max_steps: int = 50) -> PokemonEmeraldEnv:
-    return PokemonEmeraldEnv(FakeEmulator(), initial_state=b"fake", max_steps=max_steps)
+    return PokemonEmeraldEnv(FakeEmulator(), initial_states=[b"fake"], max_steps=max_steps)
 
 
 def test_gymnasium_api_compliance():
@@ -58,7 +58,7 @@ def test_truncates_at_max_steps():
 
 def test_starter_terminates_episode_with_jackpot():
     emu = FakeEmulator()
-    env = PokemonEmeraldEnv(emu, initial_state=b"state", max_steps=50)
+    env = PokemonEmeraldEnv(emu, initial_states=[b"state"], max_steps=50)
     env.reset()
     emu.party_count = 1
     emu.party_levels = [5]
@@ -72,7 +72,7 @@ def test_starter_terminates_episode_with_jackpot():
 
 def test_route_101_milestone_pays_without_terminating():
     emu = FakeEmulator()
-    env = PokemonEmeraldEnv(emu, initial_state=b"state", max_steps=50)
+    env = PokemonEmeraldEnv(emu, initial_states=[b"state"], max_steps=50)
     env.reset()
     emu.map_group, emu.map_num = 0, 16
     _, reward, terminated, _, info = env.step(0)
@@ -83,7 +83,7 @@ def test_route_101_milestone_pays_without_terminating():
 
 def test_reset_clears_milestones():
     emu = FakeEmulator()
-    env = PokemonEmeraldEnv(emu, initial_state=b"state", max_steps=50)
+    env = PokemonEmeraldEnv(emu, initial_states=[b"state"], max_steps=50)
     env.reset()
     emu.party_count = 1
     env.step(0)
@@ -93,7 +93,7 @@ def test_reset_clears_milestones():
 
 def test_intro_chain_pays_each_milestone_once():
     emu = FakeEmulator()
-    env = PokemonEmeraldEnv(emu, initial_state=b"state", max_steps=50)
+    env = PokemonEmeraldEnv(emu, initial_states=[b"state"], max_steps=50)
     env.reset()
 
     emu.map_group, emu.map_num = 0, 9  # exit the truck into Littleroot
@@ -137,3 +137,22 @@ def test_intro_chain_pays_each_milestone_once():
     _, reward, _, _, info = env.step(0)
     assert reward >= 10.0
     assert "north_littleroot" in info["milestones"]
+
+
+def test_reset_draws_one_of_the_initial_states():
+    emu = FakeEmulator()
+    env = PokemonEmeraldEnv(emu, initial_states=[b"a", b"b", b"c"], max_steps=50)
+    seen = set()
+    for seed in range(20):
+        env.reset(seed=seed)
+        seen.add(emu.loaded_states[-1])
+    # Over 20 seeds the uniform draw should hit more than one state.
+    assert seen.issubset({b"a", b"b", b"c"})
+    assert len(seen) > 1
+
+
+def test_empty_initial_states_raises():
+    import pytest
+
+    with pytest.raises(ValueError):
+        PokemonEmeraldEnv(FakeEmulator(), initial_states=[], max_steps=50)

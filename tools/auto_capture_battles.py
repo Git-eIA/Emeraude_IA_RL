@@ -66,7 +66,7 @@ def main() -> None:
     rom = os.environ["POKEMON_EMERALD_ROM"]
     initial = Path(args.state).read_bytes()
     # Give the env a large step budget so its own truncation never interrupts us.
-    env = PokemonEmeraldEnv(GbaEmulator(rom), initial, max_steps=10_000_000)
+    env = PokemonEmeraldEnv(GbaEmulator(rom), [initial], max_steps=10_000_000)
     reader = BattleReader(env.emulator.read_bytes)
     model = PPO.load(args.model, device="cpu")
 
