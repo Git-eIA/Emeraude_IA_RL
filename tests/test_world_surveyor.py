@@ -54,6 +54,10 @@ class WorldGrid:
     def snapshot(self) -> WorldSnapshot:
         return WorldSnapshot(map_id=self.map_id, pos=self.pos, tile_behavior=None)
 
+    def party_hp(self) -> list[tuple[int, int]]:
+        # Always full: watcher stays quiet, no healing behaviour change.
+        return [(1, 1)]
+
 
 def _sealed_room(
     map_id: tuple[int, int], width: int, height: int

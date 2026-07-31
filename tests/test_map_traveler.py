@@ -57,6 +57,10 @@ class MultiMapWorld:
     def snapshot(self) -> WorldSnapshot | None:
         return WorldSnapshot(map_id=self.map_id, pos=self.pos, tile_behavior=None)
 
+    def party_hp(self) -> list[tuple[int, int]]:
+        # Always full: watcher stays quiet, no healing behaviour change.
+        return [(1, 1)]
+
 
 def test_same_map_delegates_to_navigate() -> None:
     world = MultiMapWorld(start_map=(0, 0), start_cell=(0, 0))

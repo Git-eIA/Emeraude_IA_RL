@@ -5,7 +5,7 @@ import dataclasses
 
 from emulator import buttons
 from env.local_navigator import WallMap
-from env.map_memory import MapMemory
+from env.map_memory import MapMemory, WorldEvent
 from env.orders import DESTINATIONS, Order, execute_order
 from env.world_reader import WorldSnapshot
 
@@ -83,6 +83,10 @@ class NamedWorld:
     def snapshot(self) -> WorldSnapshot:
         return WorldSnapshot(map_id=self.map_id, pos=self.pos, tile_behavior=None)
 
+    def party_hp(self) -> list[tuple[int, int]]:
+        # Always full: watcher stays quiet, no healing behaviour change.
+        return [(1, 1)]
+
 
 def test_advance_to_same_map_destination_arrives() -> None:
     world = NamedWorld(start_map=(0, 9), start_cell=(0, 10))
@@ -112,3 +116,69 @@ def test_advance_passes_through_unknown_route() -> None:
     order = Order(destination="route_101", mode="advance", combat="win")
     result = execute_order(order, world, world, MapMemory(), WallMap())
     assert result == "unknown_route"
+
+
+# ---------------------------------------------------------------------------
+# Heal tests
+# ---------------------------------------------------------------------------
+
+
+class HealWorld:
+    """Fake emulator+reader on a single map: party is hurt, refills after N A-presses."""
+
+    def __init__(
+        self,
+        map_id: tuple[int, int],
+        cell: tuple[int, int],
+        a_presses_to_full: int = 2,
+    ) -> None:
+        self.map_id = map_id
+        self.pos = cell
+        self._to_full = a_presses_to_full
+        self._a_count = 0
+
+    def step(self, keys: int, frames: int) -> None:
+        if keys & buttons.KEY_A:
+            self._a_count += 1
+
+    def snapshot(self) -> WorldSnapshot:
+        return WorldSnapshot(map_id=self.map_id, pos=self.pos, tile_behavior=None)
+
+    def party_hp(self) -> list[tuple[int, int]]:
+        full = self._a_count >= self._to_full
+        return [(5, 5)] if full else [(2, 5)]
+
+
+def test_heal_without_known_spot_returns_no_healing_spot_known() -> None:
+    world = HealWorld((0, 9), (3, 10))
+    order = Order(destination="littleroot", mode="heal", combat="win")
+    result = execute_order(order, world, world, MapMemory(), WallMap())
+    assert result == "no_healing_spot_known"
+
+
+def test_heal_on_current_map_travels_and_heals() -> None:
+    world = HealWorld((0, 9), (3, 10), a_presses_to_full=2)
+    memory = MapMemory()
+    memory.observe(WorldSnapshot((0, 9), (3, 10), None), WorldEvent(healed=True))
+    order = Order(destination="littleroot", mode="heal", combat="win")
+    result = execute_order(order, world, world, memory, WallMap())
+    assert result == "healed"
+
+
+def test_heal_that_never_refills_returns_heal_failed() -> None:
+    world = HealWorld((0, 9), (3, 10), a_presses_to_full=10_000)
+    memory = MapMemory()
+    memory.observe(WorldSnapshot((0, 9), (3, 10), None), WorldEvent(healed=True))
+    order = Order(destination="littleroot", mode="heal", combat="win")
+    result = execute_order(order, world, world, memory, WallMap())
+    assert result == "heal_failed"
+
+
+def test_heal_ignores_the_order_destination() -> None:
+    # The Strategist gives a pure "heal" intention; destination is not a real place.
+    world = HealWorld((0, 9), (3, 10), a_presses_to_full=2)
+    memory = MapMemory()
+    memory.observe(WorldSnapshot((0, 9), (3, 10), None), WorldEvent(healed=True))
+    order = Order(destination="not_a_registered_place", mode="heal", combat="win")
+    result = execute_order(order, world, world, memory, WallMap())
+    assert result == "healed"

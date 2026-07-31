@@ -198,3 +198,33 @@ def test_real_rom_state_after_initial_savestate(rom_path):
     assert state.town_state == 0
     assert reader.party_levels() == []
     assert reader.read_flag(FLAG_SET_WALL_CLOCK) is False
+
+
+def test_party_hp_reads_current_and_max_per_member() -> None:
+    from env.game_state import (
+        EmeraldReader, PARTY_ADDR, PARTY_COUNT_ADDR, PARTY_MON_SIZE,
+        PARTY_HP_OFFSET, PARTY_MAX_HP_OFFSET,
+    )
+
+    mem: dict[int, int] = {PARTY_COUNT_ADDR: 2}
+    for slot, (cur, mx) in enumerate([(12, 34), (5, 5)]):
+        base = PARTY_ADDR + slot * PARTY_MON_SIZE
+        mem[base + PARTY_HP_OFFSET] = cur & 0xFF
+        mem[base + PARTY_HP_OFFSET + 1] = cur >> 8
+        mem[base + PARTY_MAX_HP_OFFSET] = mx & 0xFF
+        mem[base + PARTY_MAX_HP_OFFSET + 1] = mx >> 8
+
+    def read(addr: int, length: int) -> bytes:
+        return bytes(mem.get(addr + i, 0) for i in range(length))
+
+    reader = EmeraldReader(read)
+    assert reader.party_hp() == [(12, 34), (5, 5)]
+
+
+def test_party_hp_empty_when_no_party() -> None:
+    from env.game_state import EmeraldReader
+
+    def read(addr: int, length: int) -> bytes:
+        return bytes(0 for _ in range(length))  # count = 0
+
+    assert EmeraldReader(read).party_hp() == []
