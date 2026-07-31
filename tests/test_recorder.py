@@ -139,3 +139,36 @@ def test_disk_cap_stops_frames_keeps_numeric(tmp_path):
     assert len(rows) == 3  # header + 2 numeric rows (numeric kept)
 
 
+# ---------------------------------------------------------------------------
+# Batch C (Task 5) — fail-safe
+# ---------------------------------------------------------------------------
+
+
+class ExplodingVecEnv(FakeVecEnv):
+    def env_method(self, method_name, *args, indices=None):
+        raise RuntimeError("render boom")
+
+
+def test_render_error_does_not_crash_and_keeps_numeric(tmp_path):
+    cb = RecorderCallback(run_dir=tmp_path / "run1", capture_every=1)
+    cb.training_env = ExplodingVecEnv(1)
+    cb._on_training_start()
+    result = _step(cb, t=1, infos=[_info(pos=(9, 9))], rewards=[0.0])
+    assert result is True                 # training continues
+    assert cb._errors == 1                # render failure noted
+    cb._on_training_end()
+    rows = list(csv.reader((tmp_path / "run1" / "steps.csv").open()))
+    assert rows[1][4:6] == ["9", "9"]     # numeric written before the failing frame block
+
+
+def test_disables_after_error_threshold(tmp_path):
+    from env.capture.recorder import _MAX_ERRORS
+
+    cb = RecorderCallback(run_dir=tmp_path / "run1", capture_every=1)
+    cb.training_env = ExplodingVecEnv(1)
+    cb._on_training_start()
+    for t in range(1, _MAX_ERRORS + 1):
+        _step(cb, t=t, infos=[_info()], rewards=[0.0])
+    assert cb._disabled is True
+    # once disabled, further steps are no-ops and still return True
+    assert _step(cb, t=999, infos=[_info()], rewards=[0.0]) is True
