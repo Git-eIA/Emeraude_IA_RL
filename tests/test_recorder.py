@@ -42,7 +42,7 @@ def _step(cb, t, infos, rewards):
 
 
 def test_run_json_written_on_start(tmp_path):
-    cb = _make_cb(tmp_path)
+    _make_cb(tmp_path)
     data = json.loads((tmp_path / "run1" / "run.json").read_text())
     assert data["schema_version"] == 1
     assert data["run_id"] == "run1"
