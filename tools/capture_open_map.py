@@ -19,7 +19,6 @@ from pathlib import Path
 from stable_baselines3 import PPO
 
 from emulator.gba import GbaEmulator
-from env.game_state import EmeraldReader
 from env.pokemon_env import PokemonEmeraldEnv
 from env.world_reader import WorldReader
 
@@ -36,7 +35,7 @@ def main() -> None:
     rom = os.environ["POKEMON_EMERALD_ROM"]
     initial = Path(args.state).read_bytes()
     env = PokemonEmeraldEnv(GbaEmulator(rom), initial, max_steps=10_000_000)
-    reader = WorldReader(EmeraldReader(env.emulator.read_bytes))
+    reader = WorldReader(env.emulator.read_bytes)
     model = PPO.load(args.model, device="cpu")
 
     obs, _ = env.reset()

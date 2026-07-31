@@ -14,7 +14,6 @@ from pathlib import Path
 import pytest
 
 from emulator.gba import GbaEmulator
-from env.game_state import EmeraldReader
 from env.local_navigator import DIRECTIONS, WallMap
 from env.map_explorer import map_map
 from env.map_memory import MapMemory
@@ -30,7 +29,7 @@ _STATE = Path.home() / "Projets" / "Emu" / "states" / "open_map.state"
 def test_map_map_learns_something_on_a_real_open_map():
     emulator = GbaEmulator(POKEMON_EMERALD_ROM)
     emulator.load_state(_STATE.read_bytes())
-    reader = WorldReader(EmeraldReader(emulator.read_bytes))
+    reader = WorldReader(emulator.read_bytes)
 
     start = reader.snapshot()
     assert start is not None, "open_map.state should sit on a readable map"

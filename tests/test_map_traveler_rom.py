@@ -15,7 +15,6 @@ _STATE = Path(__file__).resolve().parents[2] / "Emu" / "states" / "initial.state
 @pytest.mark.skipif(not ROM, reason="POKEMON_EMERALD_ROM not set")
 def test_travel_same_map_arrives_on_real_rom() -> None:
     from emulator.gba import GbaEmulator
-    from env.game_state import EmeraldReader
     from env.local_navigator import WallMap
     from env.map_memory import MapMemory
     from env.map_traveler import travel_to
@@ -23,7 +22,7 @@ def test_travel_same_map_arrives_on_real_rom() -> None:
 
     emu = GbaEmulator(ROM)
     emu.load_state(_STATE.read_bytes())
-    reader = WorldReader(EmeraldReader(emu.read_bytes))
+    reader = WorldReader(emu.read_bytes)
     snap = reader.snapshot()
     assert snap is not None
 
