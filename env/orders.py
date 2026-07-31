@@ -8,6 +8,9 @@ directive is stored for a future Fighter hookup. No Strategist, no reward here.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
+
+from env.map_traveler import travel_to
 
 
 @dataclass(frozen=True)
@@ -26,3 +29,27 @@ DESTINATIONS: dict[str, tuple[tuple[int, int], tuple[int, int]]] = {
     "littleroot": ((0, 9), (3, 10)),   # Bourg-en-Vol, truck landing cell
     "route_101": ((0, 16), (5, 12)),   # Route 101, south entrance from Littleroot
 }
+
+
+def execute_order(
+    order: Order,
+    emulator: Any,
+    reader: Any,
+    memory: Any,
+    wallmap: Any,
+    max_hops: int = 20,
+) -> str:
+    """Resolve the order's destination and hand navigation to travel_to.
+
+    Returns "unknown_destination" | "not_implemented" | one of travel_to's
+    outcomes ("arrived" | "unknown_route" | "unreachable" | "lost" | "timeout").
+    """
+    dest = DESTINATIONS.get(order.destination)
+    if dest is None:
+        return "unknown_destination"
+    if order.mode != "advance":
+        return "not_implemented"   # grind/heal wiring is a later step
+    goal_map, goal_cell = dest
+    return travel_to(
+        emulator, reader, memory, wallmap, goal_map, goal_cell, max_hops=max_hops
+    )
