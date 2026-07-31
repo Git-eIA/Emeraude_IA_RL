@@ -262,3 +262,120 @@ def test_grind_ignores_the_order_destination() -> None:
     order = Order(destination="not_a_registered_place", mode="grind", combat="win")
     result = execute_order(order, world, world, memory, WallMap())
     assert result == "encounter_started"
+
+
+# ---------------------------------------------------------------------------
+# Grind + Fighter hookup tests
+# ---------------------------------------------------------------------------
+
+
+def _u16b(v: int) -> bytes:
+    return bytes([v & 0xFF, (v >> 8) & 0xFF])
+
+
+class GrassBattleWorld:
+    """Treads to a battle, then plays a scripted battle the Fighter wins in 3 turns."""
+
+    _RESOLVE_PRESSES = 2
+
+    def __init__(self, map_id: tuple[int, int], cell: tuple[int, int],
+                 steps_to_encounter: int = 3) -> None:
+        self.map_id = map_id
+        self.pos = cell
+        self._to_enc = steps_to_encounter
+        self._steps = 0
+        self._battle = False
+        self._opp_hp = 18
+        self._my_hp = 19
+        self._outcome = 0
+        self._phase = "menu"
+        self._resolve_left = 0
+
+    def step(self, keys: int, frames: int) -> None:
+        from emulator import buttons
+
+        if not self._battle:
+            if _KEY_TO_DIR.get(keys) is not None:
+                self._steps += 1
+                if self._steps >= self._to_enc:
+                    self._battle = True
+            return
+        if keys == 0:
+            return
+        if self._phase == "menu" and keys & buttons.KEY_A:
+            self._phase = "moves"
+        elif self._phase == "moves" and keys & buttons.KEY_A:
+            self._opp_hp = max(0, self._opp_hp - 6)
+            if self._opp_hp == 0:
+                self._outcome = 1
+            self._phase = "resolving"
+            self._resolve_left = self._RESOLVE_PRESSES
+        elif self._phase == "resolving" and keys & buttons.KEY_A:
+            self._resolve_left -= 1
+            if self._resolve_left <= 0 and self._outcome == 0:
+                self._phase = "menu"
+
+    def snapshot(self) -> WorldSnapshot:
+        return WorldSnapshot(map_id=self.map_id, pos=self.pos, tile_behavior=None)
+
+    def party_hp(self) -> list[tuple[int, int]]:
+        return [(5, 5)]
+
+    def in_battle(self) -> bool:
+        return self._battle
+
+    def read_bytes(self, addr: int, size: int) -> bytes:
+        from env.game_state import (
+            ACTION_MENU_VALUE,
+            BATTLE_MON_SIZE,
+            GBATTLE_ACTION_MENU_ADDR,
+            GBATTLE_MONS_ADDR,
+            GBATTLE_OUTCOME_ADDR,
+            GBATTLE_TYPE_FLAGS_ADDR,
+            GMOVE_RESULT_FLAGS_ADDR,
+        )
+
+        if addr == GBATTLE_ACTION_MENU_ADDR:
+            return bytes([ACTION_MENU_VALUE if self._phase == "menu" else 0])
+        if addr == GBATTLE_TYPE_FLAGS_ADDR:
+            return _u16b(0 if self._outcome else 1) + b"\x00\x00"
+        if addr == GBATTLE_OUTCOME_ADDR:
+            return bytes([self._outcome])
+        if addr == GMOVE_RESULT_FLAGS_ADDR:
+            return _u16b(0)
+        pbase = GBATTLE_MONS_ADDR
+        obase = GBATTLE_MONS_ADDR + BATTLE_MON_SIZE
+        for base, hp, mx in ((pbase, self._my_hp, 19), (obase, self._opp_hp, 18)):
+            if base <= addr < base + BATTLE_MON_SIZE:
+                buf = bytearray(BATTLE_MON_SIZE)
+                buf[0x00:0x02] = _u16b(1)
+                buf[0x0C:0x0E] = _u16b(1)
+                buf[0x24] = 10
+                buf[0x21], buf[0x22] = 12, 12
+                buf[0x28:0x2A] = _u16b(hp)
+                buf[0x2A] = 5
+                buf[0x2C:0x2E] = _u16b(mx)
+                off = addr - base
+                return bytes(buf[off : off + size])
+        raise AssertionError(f"unexpected read at 0x{addr:08X}")
+
+
+def test_grind_with_fighter_wins_the_battle() -> None:
+    world = GrassBattleWorld((0, 16), (5, 12), steps_to_encounter=3)
+    memory = MapMemory()
+    memory.observe(WorldSnapshot((0, 16), (5, 12), None), WorldEvent(encounter_started=True))
+    order = Order(destination="route_101", mode="grind", combat="win")
+    result = execute_order(
+        order, world, world, memory, WallMap(),
+        move_type_fn=lambda mid: 12, predict=lambda obs: 0,
+    )
+    assert result == "won"
+
+
+def test_grind_without_fighter_deps_still_returns_encounter_started() -> None:
+    world = GrassBattleWorld((0, 16), (5, 12), steps_to_encounter=3)
+    memory = MapMemory()
+    memory.observe(WorldSnapshot((0, 16), (5, 12), None), WorldEvent(encounter_started=True))
+    order = Order(destination="route_101", mode="grind", combat="win")
+    result = execute_order(order, world, world, memory, WallMap())
+    assert result == "encounter_started"

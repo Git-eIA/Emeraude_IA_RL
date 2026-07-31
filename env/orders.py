@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from emulator import buttons
+from env.battle_player import play_battle
 from env.encounter_detector import EncounterWatcher
 from env.heal_detector import party_is_full
 from env.map_traveler import travel_to
@@ -54,6 +55,8 @@ def execute_order(
     memory: Any,
     wallmap: Any,
     max_hops: int = 20,
+    move_type_fn: Any = None,
+    predict: Any = None,
 ) -> str:
     """Execute an order dispatched by the Strategist.
 
@@ -64,12 +67,15 @@ def execute_order(
     Returns "unknown_destination" | "no_healing_spot_known" | "no_grass_spot_known" |
     one of travel_to's outcomes ("arrived" | "unknown_route" | "unreachable" |
     "lost" | "timeout") | "healed" | "heal_failed" | "encounter_started" |
-    "no_encounter".
+    "no_encounter" | "won" | "lost" | "battle_timeout".
     """
     if order.mode == "heal":
         return _execute_heal(emulator, reader, memory, wallmap, max_hops=max_hops)
     if order.mode == "grind":
-        return _execute_grind(emulator, reader, memory, wallmap, max_hops=max_hops)
+        return _execute_grind(
+            emulator, reader, memory, wallmap,
+            max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
+        )
     dest = DESTINATIONS.get(order.destination)
     if dest is None:
         return "unknown_destination"
@@ -119,11 +125,14 @@ def _execute_grind(
     memory: Any,
     wallmap: Any,
     max_hops: int = 20,
+    move_type_fn: Any = None,
+    predict: Any = None,
 ) -> str:
-    """Travel to a known grass cell, then tread in it until a wild battle starts.
+    """Travel to a known grass cell, tread until a wild battle starts, then—if a
+    Fighter is supplied—play the battle to an outcome.
 
-    Returns "no_grass_spot_known" | a travel_to pass-through | "encounter_started" |
-    "no_encounter".
+    Returns "no_grass_spot_known" | a travel_to pass-through | "no_encounter" |
+    "encounter_started" (no Fighter) | "won" | "lost" | "battle_timeout".
     """
     spots = memory.cells_labeled("has_grass")
     if not spots:
@@ -134,7 +143,12 @@ def _execute_grind(
     )
     if outcome != "arrived":
         return outcome               # pass-through: unknown_route/unreachable/lost/timeout
-    return _walk_until_encounter(emulator, reader)
+    result = _walk_until_encounter(emulator, reader)
+    if result != "encounter_started":
+        return result                # no_encounter
+    if move_type_fn is None or predict is None:
+        return "encounter_started"   # no Fighter wired: stop at the encounter
+    return play_battle(emulator, move_type_fn, predict)
 
 
 def _walk_until_encounter(emulator: Any, reader: Any) -> str:
