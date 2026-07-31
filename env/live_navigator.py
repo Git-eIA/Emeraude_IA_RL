@@ -10,8 +10,9 @@ from __future__ import annotations
 from typing import Any
 
 from emulator import buttons
+from env.heal_detector import HealWatcher
 from env.local_navigator import WallMap, plan_path, resolve_move
-from env.map_memory import MapMemory
+from env.map_memory import MapMemory, WorldEvent
 
 _DIRECTION_KEYS: dict[str, int] = {
     "up": buttons.KEY_UP,
@@ -40,11 +41,14 @@ def navigate_to(
     (from_cell + direction + landed-on map). Returns
     'arrived' | 'unreachable' | 'left_map' | 'timeout'.
     """
+    watcher = HealWatcher()
     for _ in range(max_steps):
         before = reader.snapshot()
         if before is None:
             emulator.step(0, RELEASE_FRAMES)   # relocating; idle a beat and retry
             continue
+        if memory is not None and watcher.observe(reader.party_hp()):
+            memory.observe(before, WorldEvent(healed=True))
         if before.pos == target:
             return "arrived"
         path = plan_path(wallmap, before.map_id, before.pos, target)

@@ -68,6 +68,24 @@ class FakeWorld:
             return None
         return WorldSnapshot(map_id=self.map_id, pos=self.pos, tile_behavior=None)
 
+    def party_hp(self) -> list[tuple[int, int]]:
+        # Always full: watcher starts _was_full=True, stays quiet — no spurious heal.
+        return [(1, 1)]
+
+
+class HealingFakeWorld(FakeWorld):
+    """Extends FakeWorld with party_hp that refills to full upon reaching heal_at."""
+
+    def __init__(self, heal_at: tuple[int, int], **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._heal_at = heal_at
+
+    def party_hp(self) -> list[tuple[int, int]]:
+        # Hurt until the player stands on heal_at, then full.
+        if self.pos == self._heal_at:
+            return [(5, 5)]
+        return [(2, 5)]
+
 
 def test_walks_straight_corridor_to_target() -> None:
     world = FakeWorld(start=(0, 0))
@@ -151,3 +169,23 @@ def test_probe_step_and_snapshot_settled_are_public() -> None:
     outcome = probe_step(world, world, before, "right")
     assert outcome == "moved"
     assert snapshot_settled(world).pos == (1, 0)
+
+
+def test_navigate_learns_healing_spot_on_hp_refill() -> None:
+    # Straight corridor; HP refills when the player arrives at target (3, 0).
+    # Party starts hurt (2/5), becomes full (5/5) only at heal_at=(3, 0).
+    # The watcher must fire on that tick and the spot must be recorded.
+    target = (3, 0)
+    world = HealingFakeWorld(start=(0, 0), heal_at=target)
+    memory = MapMemory()
+    result = navigate_to(world, world, WallMap(), target=target, memory=memory)
+    assert result == "arrived"
+    assert memory.healing_spots() == [(world.map_id, target)]
+
+
+def test_navigate_without_memory_ignores_hp() -> None:
+    # memory=None: no party_hp calls should cause a crash; behaviour is unchanged.
+    target = (3, 0)
+    world = HealingFakeWorld(start=(0, 0), heal_at=target)
+    result = navigate_to(world, world, WallMap(), target=target)
+    assert result == "arrived"
