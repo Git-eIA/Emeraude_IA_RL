@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from env.capture.recorder import RecorderCallback
 
@@ -172,3 +173,47 @@ def test_disables_after_error_threshold(tmp_path):
     assert cb._disabled is True
     # once disabled, further steps are no-ops and still return True
     assert _step(cb, t=999, infos=[_info()], rewards=[0.0]) is True
+
+
+# ---------------------------------------------------------------------------
+# Fix A — global milestone dedup (first-time-ever per env, not per episode)
+# ---------------------------------------------------------------------------
+
+
+def test_milestone_not_refired_after_episode_reset(tmp_path):
+    cb = _make_cb(tmp_path, n_envs=1, clip_len=5)
+    _step(cb, t=10, infos=[_info(milestones=("meet_rival",))], rewards=[0.0])  # fires
+    _step(cb, t=11, infos=[_info(milestones=())], rewards=[0.0])               # episode reset
+    _step(cb, t=12, infos=[_info(milestones=("meet_rival",))], rewards=[0.0])  # same milestone again
+    cb._milestones_fh.flush()
+    rows = list(csv.reader((tmp_path / "run1" / "milestones.csv").open()))
+    assert len(rows) == 2  # header + exactly one row despite firing twice across episodes
+
+
+# ---------------------------------------------------------------------------
+# Fix B — teardown is a no-op if init never completed
+# ---------------------------------------------------------------------------
+
+
+def test_failed_init_teardown_is_noop(tmp_path):
+    cb = RecorderCallback(run_dir=tmp_path / "run1")
+    cb.training_env = FakeVecEnv(1)
+    # sabotage: point run_dir at a path whose parent is a file, so mkdir fails
+    bad = tmp_path / "afile"
+    bad.write_text("x")
+    cb._run_dir = bad / "sub"
+    cb._on_training_start()
+    assert cb._disabled is True
+    assert cb._started is False
+    cb._on_training_end()  # must not raise
+    assert not (bad / "sub" / "run.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# Fix C — capture_every=0 rejected in __init__
+# ---------------------------------------------------------------------------
+
+
+def test_capture_every_zero_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        RecorderCallback(run_dir=tmp_path / "run1", capture_every=0)

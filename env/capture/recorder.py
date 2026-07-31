@@ -44,6 +44,8 @@ class RecorderCallback(BaseCallback):
         meta: dict[str, Any] | None = None,
         verbose: int = 0,
     ) -> None:
+        if capture_every < 1:
+            raise ValueError("capture_every must be >= 1")
         super().__init__(verbose)
         self._run_dir = Path(run_dir)
         self._capture_every = capture_every
@@ -59,6 +61,7 @@ class RecorderCallback(BaseCallback):
         self._errors = 0
         self._disabled = False
         self._disabled_frames = False
+        self._started = False
         self._steps_fh = None
         self._steps_writer = None
         self._milestones_fh = None
@@ -93,7 +96,14 @@ class RecorderCallback(BaseCallback):
             self._milestones_writer = csv.writer(self._milestones_fh)
             self._milestones_writer.writerow(_MILESTONES_HEADER)
             self._write_run_json(start=True)
+            self._started = True
         except Exception as exc:
+            for fh in (self._steps_fh, self._milestones_fh):
+                if fh is not None:
+                    try:
+                        fh.close()
+                    except Exception:
+                        pass
             log.warning("capture init failed, disabling: %s", exc)
             self._disabled = True
 
@@ -110,6 +120,8 @@ class RecorderCallback(BaseCallback):
         return True
 
     def _on_training_end(self) -> None:
+        if not self._started:
+            return
         for fh in (self._steps_fh, self._milestones_fh):
             if fh is not None:
                 fh.flush()
@@ -147,7 +159,7 @@ class RecorderCallback(BaseCallback):
                 self._milestones_writer.writerow([t, i, name, time.time()])
                 self._clip_remaining[i] = self._clip_len
                 self._clip_tag[i] = f"{name}_{t}"
-            self._seen[i] = current
+            self._seen[i] |= current
 
     def _maybe_sample_frames(self, t: int) -> None:
         if self._disabled_frames:
