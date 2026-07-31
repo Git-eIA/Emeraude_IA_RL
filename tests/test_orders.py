@@ -168,3 +168,13 @@ def test_heal_that_never_refills_returns_heal_failed() -> None:
     order = Order(destination="littleroot", mode="heal", combat="win")
     result = execute_order(order, world, world, memory, WallMap())
     assert result == "heal_failed"
+
+
+def test_heal_ignores_the_order_destination() -> None:
+    # The Strategist gives a pure "heal" intention; destination is not a real place.
+    world = HealWorld((0, 9), (3, 10), a_presses_to_full=2)
+    memory = MapMemory()
+    memory.observe(WorldSnapshot((0, 9), (3, 10), None), WorldEvent(healed=True))
+    order = Order(destination="not_a_registered_place", mode="heal", combat="win")
+    result = execute_order(order, world, world, memory, WallMap())
+    assert result == "healed"

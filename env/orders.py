@@ -46,16 +46,21 @@ def execute_order(
     wallmap: Any,
     max_hops: int = 20,
 ) -> str:
-    """Resolve the order's destination and hand navigation to travel_to.
+    """Execute an order dispatched by the Strategist.
 
-    Returns "unknown_destination" | "not_implemented" | one of travel_to's
-    outcomes ("arrived" | "unknown_route" | "unreachable" | "lost" | "timeout").
+    heal is resolved first and ignores `destination` (pure intention — the
+    healing spot comes from memory.healing_spots(), not the order's name).
+    For advance (and the grind stub), `destination` must be in DESTINATIONS.
+
+    Returns "unknown_destination" | "not_implemented" | "no_healing_spot_known" |
+    one of travel_to's outcomes ("arrived" | "unknown_route" | "unreachable" |
+    "lost" | "timeout") | "healed" | "heal_failed".
     """
+    if order.mode == "heal":
+        return _execute_heal(emulator, reader, memory, wallmap, max_hops=max_hops)
     dest = DESTINATIONS.get(order.destination)
     if dest is None:
         return "unknown_destination"
-    if order.mode == "heal":
-        return _execute_heal(emulator, reader, memory, wallmap, max_hops=max_hops)
     if order.mode != "advance":
         return "not_implemented"   # grind wiring is a later step
     goal_map, goal_cell = dest
