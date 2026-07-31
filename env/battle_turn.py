@@ -48,7 +48,10 @@ def select_move(emulator: Any, reader: Any, action: int) -> None:
 
 
 def advance_to_menu(emulator: Any, reader: Any) -> None:
-    """Press A to clear dialogue until back at the action menu or battle end."""
+    """Press A to clear dialogue until back at the action menu or battle end.
+
+    `reader` must expose battle_state() -> BattleState and at_action_menu() -> bool.
+    """
     for _ in range(MAX_ADVANCE_PRESSES):
         state = reader.battle_state()
         if state.outcome != 0 or not state.in_battle:

@@ -8,19 +8,17 @@ select the slot, then advance dialogue until the next menu or the battle ends.
 """
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
 from env.battle_rewards import BattleRewardTracker
-from env.battle_turn import OBS_SIZE, advance_to_menu, observation, press, select_move
+from env.battle_turn import MoveTypeFn, OBS_SIZE, advance_to_menu, observation, press, select_move
 from env.game_state import BattleReader, BattleState
 
 RESET_WARMUP_FRAMES = 4  # let the emulator render after load_state
-
-MoveTypeFn = Callable[[int], int]
 
 
 class BattleEmeraldEnv(gym.Env):
