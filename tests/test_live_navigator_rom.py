@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from emulator.gba import GbaEmulator
-from env.game_state import EmeraldReader
 from env.live_navigator import navigate_to
 from env.local_navigator import WallMap
 from env.world_reader import WorldReader
@@ -27,7 +26,7 @@ if not _STATE_FILE.is_file():
 def test_navigate_to_wires_to_real_emulator() -> None:
     emu = GbaEmulator(ROM)
     emu.load_state(_STATE_FILE.read_bytes())
-    reader = WorldReader(EmeraldReader(emu.read_bytes))
+    reader = WorldReader(emu.read_bytes)
 
     start = reader.snapshot()
     assert start is not None  # live position read works

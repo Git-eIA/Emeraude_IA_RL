@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from env.game_state import EmeraldReader
+from env.game_state import BattleReader, EmeraldReader, ReadFn
 
 
 @dataclass(frozen=True)
@@ -19,10 +19,11 @@ class WorldSnapshot:
 
 
 class WorldReader:
-    """Wraps EmeraldReader and returns an immutable WorldSnapshot each step."""
+    """Wraps the RAM reader and returns an immutable WorldSnapshot each step."""
 
-    def __init__(self, reader: EmeraldReader) -> None:
-        self._reader = reader
+    def __init__(self, read: ReadFn) -> None:
+        self._reader = EmeraldReader(read)
+        self._battle = BattleReader(read)
 
     def snapshot(self) -> WorldSnapshot | None:
         """Snapshot the world, or None while the save blocks relocate."""
@@ -38,6 +39,10 @@ class WorldReader:
     def party_hp(self) -> list[tuple[int, int]]:
         """Passthrough to the RAM reader: (current, max) HP per party member."""
         return self._reader.party_hp()
+
+    def in_battle(self) -> bool:
+        """True while a wild/trainer battle is active."""
+        return self._battle.battle_state().in_battle
 
     def _tile_behavior(self) -> int | None:
         # TODO(probe): read the metatile-behavior byte of the tile the player

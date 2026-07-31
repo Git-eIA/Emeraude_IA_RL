@@ -17,7 +17,8 @@ from typing import Any
 
 from env.live_navigator import RELEASE_FRAMES, probe_step, snapshot_settled
 from env.local_navigator import DELTAS, DIRECTIONS, OPPOSITE, WallMap
-from env.map_memory import MapMemory
+from env.encounter_detector import EncounterWatcher
+from env.map_memory import MapMemory, WorldEvent
 
 
 def map_map(
@@ -38,6 +39,7 @@ def map_map(
     """
     reached: set[tuple[int, int]] = set()
     tried: set[tuple[tuple[int, int], str]] = set()
+    enc_watcher = EncounterWatcher()
 
     for _ in range(max_steps):
         here = snapshot_settled(reader)
@@ -47,6 +49,8 @@ def map_map(
         if here.map_id != target_map:
             return "left_map"
         reached.add(here.pos)
+        if enc_watcher.observe(reader.in_battle()):
+            memory.observe(here, WorldEvent(encounter_started=True))
 
         plan = _nearest_frontier(reached, tried, wallmap, target_map, here.pos)
         if plan is None:

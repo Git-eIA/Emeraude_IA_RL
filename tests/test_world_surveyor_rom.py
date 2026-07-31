@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 
 from emulator.gba import GbaEmulator
-from env.game_state import EmeraldReader
 from env.local_navigator import DIRECTIONS, WallMap
 from env.map_memory import MapMemory
 from env.world_reader import WorldReader
@@ -28,7 +27,7 @@ _STATE = Path.home() / "Projets" / "Emu" / "states" / "open_map.state"
 def test_survey_world_smoke_is_coherent_and_learns() -> None:
     emulator = GbaEmulator(POKEMON_EMERALD_ROM)
     emulator.load_state(_STATE.read_bytes())
-    reader = WorldReader(EmeraldReader(emulator.read_bytes))
+    reader = WorldReader(emulator.read_bytes)
 
     start = reader.snapshot()
     assert start is not None, "open_map.state should sit on a readable map"

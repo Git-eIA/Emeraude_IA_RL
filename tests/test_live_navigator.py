@@ -72,6 +72,10 @@ class FakeWorld:
         # Always full: watcher starts _was_full=True, stays quiet — no spurious heal.
         return [(1, 1)]
 
+    def in_battle(self) -> bool:
+        # No battle: EncounterWatcher stays quiet — no spurious grass learned.
+        return False
+
 
 class HealingFakeWorld(FakeWorld):
     """Extends FakeWorld with party_hp that refills to full upon reaching heal_at."""
@@ -189,3 +193,29 @@ def test_navigate_without_memory_ignores_hp() -> None:
     world = HealingFakeWorld(start=(0, 0), heal_at=target)
     result = navigate_to(world, world, WallMap(), target=target)
     assert result == "arrived"
+
+
+class EncounterFakeWorld(FakeWorld):
+    """Extends FakeWorld: a wild battle starts once the player reaches grass_at."""
+
+    def __init__(self, grass_at: tuple[int, int], **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._grass_at = grass_at
+
+    def in_battle(self) -> bool:
+        return self.pos == self._grass_at
+
+
+def test_learns_grass_cell_on_the_in_battle_edge() -> None:
+    # Walking (0,0)->(2,0); a battle fires on (1,0), which must be tagged has_grass.
+    world = EncounterFakeWorld(grass_at=(1, 0), start=(0, 0))
+    memory = MapMemory()
+    result = navigate_to(world, world, WallMap(), target=(2, 0), max_steps=50, memory=memory)
+    assert result == "arrived"
+    assert memory.cells_labeled("has_grass") == [((0, 0), (1, 0))]
+
+
+def test_navigate_without_memory_ignores_battles() -> None:
+    world = EncounterFakeWorld(grass_at=(1, 0), start=(0, 0))
+    result = navigate_to(world, world, WallMap(), target=(2, 0), max_steps=50)
+    assert result == "arrived"  # memory=None: no learning path taken, no crash

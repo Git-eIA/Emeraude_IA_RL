@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from emulator import buttons
+from env.encounter_detector import EncounterWatcher
 from env.heal_detector import HealWatcher
 from env.local_navigator import WallMap, plan_path, resolve_move
 from env.map_memory import MapMemory, WorldEvent
@@ -38,19 +39,25 @@ def navigate_to(
     """Walk the player to `target` on its current map.
 
     When `memory` is given, a map transition is recorded as a portal
-    (from_cell + direction + landed-on map), and a heal observed en route
-    (party HP refilled to full) tags the current place as a healing spot.
-    NOTE: with `memory` set, `reader` must expose `party_hp()` (WorldReader does).
+    (from_cell + direction + landed-on map), a heal observed en route
+    (party HP refilled to full) tags the current place as a healing spot,
+    and a battle starting here tags the cell as has_grass.
+    NOTE: with `memory` set, `reader` must expose `party_hp()` and `in_battle()`
+    (WorldReader does).
     Returns 'arrived' | 'unreachable' | 'left_map' | 'timeout'.
     """
-    watcher = HealWatcher()
+    heal_watcher = HealWatcher()
+    enc_watcher = EncounterWatcher()
     for _ in range(max_steps):
         before = reader.snapshot()
         if before is None:
             emulator.step(0, RELEASE_FRAMES)   # relocating; idle a beat and retry
             continue
-        if memory is not None and watcher.observe(reader.party_hp()):
-            memory.observe(before, WorldEvent(healed=True))
+        if memory is not None:
+            if heal_watcher.observe(reader.party_hp()):
+                memory.observe(before, WorldEvent(healed=True))
+            if enc_watcher.observe(reader.in_battle()):
+                memory.observe(before, WorldEvent(encounter_started=True))
         if before.pos == target:
             return "arrived"
         path = plan_path(wallmap, before.map_id, before.pos, target)

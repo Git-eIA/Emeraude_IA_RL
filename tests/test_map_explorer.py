@@ -61,6 +61,9 @@ class ExploreWorld:
     def snapshot(self) -> WorldSnapshot:
         return WorldSnapshot(map_id=self.map_id, pos=self.pos, tile_behavior=None)
 
+    def in_battle(self) -> bool:
+        return False
+
 
 def _sealed_room_walls(
     width: int, height: int
@@ -190,3 +193,27 @@ def test_budget_exhausted_on_large_room_with_tiny_budget():
     result = map_map(world, world, memory, wallmap, target, max_steps=5)
 
     assert result == "budget_exhausted"
+
+
+class EncounterExploreWorld(ExploreWorld):
+    """ExploreWorld that reports a wild battle while standing on grass_at."""
+
+    def __init__(self, grass_at: tuple[int, int], **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._grass_at = grass_at
+
+    def in_battle(self) -> bool:
+        return self.pos == self._grass_at
+
+
+def test_map_map_learns_grass_cell_when_a_battle_fires():
+    target = (3, 3)
+    walls = _sealed_room_walls(2, 2)  # cells (0,0),(1,0),(0,1),(1,1)
+    world = EncounterExploreWorld(grass_at=(1, 0), map_id=target, start=(0, 0), walls=walls)
+    memory = MapMemory()
+    wallmap = WallMap()
+
+    result = map_map(world, world, memory, wallmap, target, max_steps=200)
+
+    assert result == "complete"
+    assert ((3, 3), (1, 0)) in memory.cells_labeled("has_grass")

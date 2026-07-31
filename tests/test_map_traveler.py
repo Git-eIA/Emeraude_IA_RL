@@ -61,6 +61,10 @@ class MultiMapWorld:
         # Always full: watcher stays quiet, no healing behaviour change.
         return [(1, 1)]
 
+    def in_battle(self) -> bool:
+        # No battle: EncounterWatcher stays quiet — no spurious grass learned.
+        return False
+
 
 def test_same_map_delegates_to_navigate() -> None:
     world = MultiMapWorld(start_map=(0, 0), start_cell=(0, 0))

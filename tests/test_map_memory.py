@@ -178,3 +178,35 @@ def test_healing_cell_is_last_write_wins_on_same_map() -> None:
     mem.observe(WorldSnapshot((0, 9), (3, 10), None), WorldEvent(healed=True))
     mem.observe(WorldSnapshot((0, 9), (4, 11), None), WorldEvent(healed=True))
     assert mem.healing_spots() == [((0, 9), (4, 11))]
+
+
+def test_cells_labeled_remembers_a_grass_cell_on_encounter() -> None:
+    memory = MapMemory()
+    memory.observe(WorldSnapshot((0, 16), (5, 12), None), WorldEvent(encounter_started=True))
+    assert memory.cells_labeled("has_grass") == [((0, 16), (5, 12))]
+
+
+def test_cells_labeled_is_empty_without_any_encounter() -> None:
+    assert MapMemory().cells_labeled("has_grass") == []
+
+
+def test_grass_cell_is_last_write_wins_per_map() -> None:
+    memory = MapMemory()
+    memory.observe(WorldSnapshot((0, 16), (5, 12), None), WorldEvent(encounter_started=True))
+    memory.observe(WorldSnapshot((0, 16), (7, 3), None), WorldEvent(encounter_started=True))
+    assert memory.cells_labeled("has_grass") == [((0, 16), (7, 3))]
+
+
+def test_healing_spots_is_a_shortcut_for_cells_labeled() -> None:
+    memory = MapMemory()
+    memory.observe(WorldSnapshot((0, 9), (3, 10), None), WorldEvent(healed=True))
+    assert memory.healing_spots() == memory.cells_labeled("healing_spot")
+    assert memory.healing_spots() == [((0, 9), (3, 10))]
+
+
+def test_grass_and_healing_labels_do_not_cross_contaminate() -> None:
+    memory = MapMemory()
+    memory.observe(WorldSnapshot((0, 9), (3, 10), None), WorldEvent(healed=True))
+    memory.observe(WorldSnapshot((0, 16), (5, 12), None), WorldEvent(encounter_started=True))
+    assert memory.cells_labeled("healing_spot") == [((0, 9), (3, 10))]
+    assert memory.cells_labeled("has_grass") == [((0, 16), (5, 12))]

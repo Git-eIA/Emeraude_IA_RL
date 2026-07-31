@@ -34,11 +34,6 @@ def test_unknown_destination_returns_unknown_destination() -> None:
     assert result == "unknown_destination"
 
 
-def test_non_nav_mode_is_not_implemented_even_for_a_known_place() -> None:
-    order = Order(destination="littleroot", mode="grind", combat="win")
-    result = execute_order(order, None, None, MapMemory(), WallMap())
-    assert result == "not_implemented"
-
 
 _KEY_TO_DIR: dict[int, str] = {
     buttons.KEY_UP: "up",
@@ -86,6 +81,10 @@ class NamedWorld:
     def party_hp(self) -> list[tuple[int, int]]:
         # Always full: watcher stays quiet, no healing behaviour change.
         return [(1, 1)]
+
+    def in_battle(self) -> bool:
+        # No battle: EncounterWatcher stays quiet — no spurious grass learned.
+        return False
 
 
 def test_advance_to_same_map_destination_arrives() -> None:
@@ -148,6 +147,10 @@ class HealWorld:
         full = self._a_count >= self._to_full
         return [(5, 5)] if full else [(2, 5)]
 
+    def in_battle(self) -> bool:
+        # No battle: EncounterWatcher stays quiet — no spurious grass learned.
+        return False
+
 
 def test_heal_without_known_spot_returns_no_healing_spot_known() -> None:
     world = HealWorld((0, 9), (3, 10))
@@ -182,3 +185,80 @@ def test_heal_ignores_the_order_destination() -> None:
     order = Order(destination="not_a_registered_place", mode="heal", combat="win")
     result = execute_order(order, world, world, memory, WallMap())
     assert result == "healed"
+
+
+# ---------------------------------------------------------------------------
+# Grind tests
+# ---------------------------------------------------------------------------
+
+
+class GrassWorld:
+    """Single-map fake: treading triggers a wild battle after N steps."""
+
+    def __init__(
+        self,
+        map_id: tuple[int, int],
+        cell: tuple[int, int],
+        steps_to_encounter: int = 3,
+    ) -> None:
+        self.map_id = map_id
+        self.pos = cell
+        self._to_enc = steps_to_encounter
+        self._steps = 0
+
+    def step(self, keys: int, frames: int) -> None:
+        if _KEY_TO_DIR.get(keys) is not None:
+            self._steps += 1  # count d-pad presses; releases (keys=0) do not count
+
+    def snapshot(self) -> WorldSnapshot:
+        return WorldSnapshot(map_id=self.map_id, pos=self.pos, tile_behavior=None)
+
+    def party_hp(self) -> list[tuple[int, int]]:
+        return [(5, 5)]  # full: heal watcher stays quiet
+
+    def in_battle(self) -> bool:
+        return self._steps >= self._to_enc
+
+
+def test_grind_without_known_grass_returns_no_grass_spot_known() -> None:
+    world = GrassWorld((0, 16), (5, 12))
+    order = Order(destination="route_101", mode="grind", combat="win")
+    result = execute_order(order, world, world, MapMemory(), WallMap())
+    assert result == "no_grass_spot_known"
+
+
+def test_grind_on_known_grass_starts_an_encounter() -> None:
+    world = GrassWorld((0, 16), (5, 12), steps_to_encounter=3)
+    memory = MapMemory()
+    memory.observe(WorldSnapshot((0, 16), (5, 12), None), WorldEvent(encounter_started=True))
+    order = Order(destination="route_101", mode="grind", combat="win")
+    result = execute_order(order, world, world, memory, WallMap())
+    assert result == "encounter_started"
+
+
+def test_grind_that_never_battles_returns_no_encounter() -> None:
+    world = GrassWorld((0, 16), (5, 12), steps_to_encounter=10_000)
+    memory = MapMemory()
+    memory.observe(WorldSnapshot((0, 16), (5, 12), None), WorldEvent(encounter_started=True))
+    order = Order(destination="route_101", mode="grind", combat="win")
+    result = execute_order(order, world, world, memory, WallMap())
+    assert result == "no_encounter"
+
+
+def test_grind_passes_through_travel_failure() -> None:
+    # Grass is remembered on a map with no known route from here -> unknown_route.
+    world = GrassWorld((0, 9), (3, 10))
+    memory = MapMemory()
+    memory.observe(WorldSnapshot((0, 99), (1, 1), None), WorldEvent(encounter_started=True))
+    order = Order(destination="route_101", mode="grind", combat="win")
+    result = execute_order(order, world, world, memory, WallMap())
+    assert result == "unknown_route"
+
+
+def test_grind_ignores_the_order_destination() -> None:
+    world = GrassWorld((0, 16), (5, 12), steps_to_encounter=3)
+    memory = MapMemory()
+    memory.observe(WorldSnapshot((0, 16), (5, 12), None), WorldEvent(encounter_started=True))
+    order = Order(destination="not_a_registered_place", mode="grind", combat="win")
+    result = execute_order(order, world, world, memory, WallMap())
+    assert result == "encounter_started"
