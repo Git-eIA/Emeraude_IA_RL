@@ -35,6 +35,10 @@ class WorldReader:
             tile_behavior=self._tile_behavior(),
         )
 
+    def party_hp(self) -> list[tuple[int, int]]:
+        """Passthrough to the RAM reader: (current, max) HP per party member."""
+        return self._reader.party_hp()
+
     def _tile_behavior(self) -> int | None:
         # TODO(probe): read the metatile-behavior byte of the tile the player
         # stands on (tall grass, water, wall, door, ...). Its RAM address on

@@ -30,6 +30,8 @@ PARTY_COUNT_ADDR = 0x020244E9
 PARTY_ADDR = 0x020244EC
 PARTY_MON_SIZE = 100
 PARTY_LEVEL_OFFSET = 84  # u8 level, unencrypted battle section (pret include/pokemon.h)
+PARTY_HP_OFFSET = 86      # 0x56, u16 current HP (unencrypted; confirmed heatz123/pokeagent + pret)
+PARTY_MAX_HP_OFFSET = 88  # 0x58, u16 max HP     (unencrypted; confirmed)
 
 # offsetof(struct SaveBlock1, ...) from pret/pokeemerald
 _POS_OFFSET = 0x0000  # Coords16 pos: s16 x, s16 y
@@ -102,6 +104,17 @@ class EmeraldReader:
             self._read(PARTY_ADDR + slot * PARTY_MON_SIZE + PARTY_LEVEL_OFFSET, 1)[0]
             for slot in range(count)
         ]
+
+    def party_hp(self) -> list[tuple[int, int]]:
+        """(current_hp, max_hp) per party Pokémon in slot order; empty when no party."""
+        count = min(self._read(PARTY_COUNT_ADDR, 1)[0], 6)
+        out: list[tuple[int, int]] = []
+        for slot in range(count):
+            base = PARTY_ADDR + slot * PARTY_MON_SIZE
+            cur = int.from_bytes(self._read(base + PARTY_HP_OFFSET, 2), "little")
+            mx = int.from_bytes(self._read(base + PARTY_MAX_HP_OFFSET, 2), "little")
+            out.append((cur, mx))
+        return out
 
     def _save_block1(self) -> int | None:
         sb1 = int.from_bytes(self._read(SAVE_BLOCK1_PTR, 4), "little")
