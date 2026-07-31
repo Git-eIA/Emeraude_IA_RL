@@ -45,4 +45,6 @@ def play_battle(
 
 
 def _result(outcome: int) -> str:
+    # NOTE: assumes predict never escapes; a wild grind battle only ends by a
+    # terminal outcome, so battle-end with outcome==0 is not reachable here.
     return "won" if outcome & 0x1 else "lost"
