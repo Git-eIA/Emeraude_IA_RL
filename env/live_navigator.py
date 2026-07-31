@@ -38,8 +38,10 @@ def navigate_to(
     """Walk the player to `target` on its current map.
 
     When `memory` is given, a map transition is recorded as a portal
-    (from_cell + direction + landed-on map). Returns
-    'arrived' | 'unreachable' | 'left_map' | 'timeout'.
+    (from_cell + direction + landed-on map), and a heal observed en route
+    (party HP refilled to full) tags the current place as a healing spot.
+    NOTE: with `memory` set, `reader` must expose `party_hp()` (WorldReader does).
+    Returns 'arrived' | 'unreachable' | 'left_map' | 'timeout'.
     """
     watcher = HealWatcher()
     for _ in range(max_steps):
