@@ -6,6 +6,9 @@ directive; the Explorer (worker) executes it. "advance" navigates via travel_to;
 "grind" travels to a known grass cell and treads until a wild battle starts.
 The combat directive is stored for a future Fighter hookup.
 No Strategist, no reward here.
+
+ROM smoke for grind is deferred: it needs a savestate standing on/near grass
+with a party and a deterministic encounter, which we do not have yet.
 """
 from __future__ import annotations
 
