@@ -379,3 +379,167 @@ def test_grind_without_fighter_deps_still_returns_encounter_started() -> None:
     order = Order(destination="route_101", mode="grind", combat="win")
     result = execute_order(order, world, world, memory, WallMap())
     assert result == "encounter_started"
+
+
+# ---------------------------------------------------------------------------
+# Level-up loop tests
+# ---------------------------------------------------------------------------
+
+
+class FarmWorld:
+    """Full grind-loop fake: treads -> wins a scripted 1-turn battle -> levels up
+    and takes damage; A-presses out of battle (the Center) refill the party.
+
+    Snapshots at a fixed cell that is BOTH the grass spot and the healing spot,
+    so travel_to always arrives immediately. `party_levels()` reports the same
+    level for every member, so the average equals `self._level`.
+    """
+
+    MAP = (0, 16)
+    CELL = (5, 12)
+
+    def __init__(
+        self,
+        start_level: int,
+        target_hp_after: list[tuple[int, int]],
+        levels_per_win: int = 1,
+        steps_to_encounter: int = 3,
+        party_size: int = 1,
+        can_win: bool = True,
+    ) -> None:
+        self.map_id = self.MAP
+        self.pos = self.CELL
+        self._level = start_level
+        self._levels_per_win = levels_per_win
+        self._to_enc = steps_to_encounter
+        self._party_size = party_size
+        self._can_win = can_win
+        self._hp_after = list(target_hp_after)
+        self._hp: list[tuple[int, int]] = [(5, 5)] * party_size  # start full
+        self.battles_won = 0
+        self.heals = 0
+        self._steps = 0
+        self._battle = False
+        self._phase = "menu"
+        self._opp_hp = 6
+        self._my_hp = 19
+        self._outcome = 0
+
+    def _start_battle(self) -> None:
+        self._battle = True
+        self._phase = "menu"
+        self._opp_hp = 6
+        self._outcome = 0
+        self._steps = 0
+
+    def _end_battle(self) -> None:
+        if self._can_win:
+            self._opp_hp = 0
+            self._outcome = 1
+            self._level += self._levels_per_win
+            self.battles_won += 1
+        else:
+            self._outcome = 2   # terminal, not won -> play_battle returns "lost"
+        self._battle = False
+        self._hp = list(self._hp_after)
+
+    def step(self, keys: int, frames: int) -> None:
+        from emulator import buttons
+
+        if not self._battle:
+            if keys & buttons.KEY_A:                 # nurse dialog: refill to full
+                self._hp = [(mx, mx) for _, mx in self._hp]
+                self.heals += 1
+                return
+            if _KEY_TO_DIR.get(keys) is not None:    # treading
+                self._steps += 1
+                if self._steps >= self._to_enc:
+                    self._start_battle()
+            return
+        if keys == 0:
+            return
+        if self._phase == "menu" and keys & buttons.KEY_A:
+            self._phase = "moves"
+        elif self._phase == "moves" and keys & buttons.KEY_A:
+            self._end_battle()
+
+    def snapshot(self) -> WorldSnapshot:
+        return WorldSnapshot(map_id=self.map_id, pos=self.pos, tile_behavior=None)
+
+    def party_levels(self) -> list[int]:
+        return [self._level] * self._party_size
+
+    def party_hp(self) -> list[tuple[int, int]]:
+        return list(self._hp)
+
+    def in_battle(self) -> bool:
+        return self._battle
+
+    def read_bytes(self, addr: int, size: int) -> bytes:
+        from env.game_state import (
+            ACTION_MENU_VALUE,
+            BATTLE_MON_SIZE,
+            GBATTLE_ACTION_MENU_ADDR,
+            GBATTLE_MONS_ADDR,
+            GBATTLE_OUTCOME_ADDR,
+            GBATTLE_TYPE_FLAGS_ADDR,
+            GMOVE_RESULT_FLAGS_ADDR,
+        )
+
+        if addr == GBATTLE_ACTION_MENU_ADDR:
+            return bytes([ACTION_MENU_VALUE if self._phase == "menu" else 0])
+        if addr == GBATTLE_TYPE_FLAGS_ADDR:
+            return _u16b(0 if self._outcome else 1) + b"\x00\x00"
+        if addr == GBATTLE_OUTCOME_ADDR:
+            return bytes([self._outcome])
+        if addr == GMOVE_RESULT_FLAGS_ADDR:
+            return _u16b(0)
+        pbase = GBATTLE_MONS_ADDR
+        obase = GBATTLE_MONS_ADDR + BATTLE_MON_SIZE
+        for base, hp, mx in ((pbase, self._my_hp, 19), (obase, self._opp_hp, 18)):
+            if base <= addr < base + BATTLE_MON_SIZE:
+                buf = bytearray(BATTLE_MON_SIZE)
+                buf[0x00:0x02] = _u16b(1)
+                buf[0x0C:0x0E] = _u16b(1)
+                buf[0x24] = 10
+                buf[0x21], buf[0x22] = 12, 12
+                buf[0x28:0x2A] = _u16b(hp)
+                buf[0x2A] = 5
+                buf[0x2C:0x2E] = _u16b(mx)
+                off = addr - base
+                return bytes(buf[off : off + size])
+        raise AssertionError(f"unexpected read at 0x{addr:08X}")
+
+
+def _farm_memory(*, with_healing_spot: bool = True) -> MapMemory:
+    memory = MapMemory()
+    snap = WorldSnapshot(FarmWorld.MAP, FarmWorld.CELL, None)
+    memory.observe(snap, WorldEvent(encounter_started=True))   # grass here
+    if with_healing_spot:
+        memory.observe(snap, WorldEvent(healed=True))          # Center here
+    return memory
+
+
+_FIGHTER = {"move_type_fn": (lambda mid: 12), "predict": (lambda obs: 0)}
+
+
+def test_level_up_reaches_target_after_several_battles() -> None:
+    world = FarmWorld(start_level=7, target_hp_after=[(5, 5)])  # full: never heals
+    order = Order(destination="route_101", mode="level_up", combat="win")
+    result = execute_order(
+        order, world, world, _farm_memory(), WallMap(),
+        target_level=10, **_FIGHTER,
+    )
+    assert result == "leveled_up"
+    assert world.battles_won == 3   # 7 -> 8 -> 9 -> 10
+
+
+def test_level_up_already_at_target_fights_nothing() -> None:
+    world = FarmWorld(start_level=10, target_hp_after=[(5, 5)])
+    order = Order(destination="route_101", mode="level_up", combat="win")
+    result = execute_order(
+        order, world, world, _farm_memory(), WallMap(),
+        target_level=10, **_FIGHTER,
+    )
+    assert result == "leveled_up"
+    assert world.battles_won == 0
