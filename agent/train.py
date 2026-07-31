@@ -4,15 +4,18 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import sys
+from datetime import datetime
 from pathlib import Path
 
 import torch
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import CheckpointCallback
+from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
 from emulator.gba import GbaEmulator
+from env.capture.recorder import RecorderCallback
 from env.pokemon_env import PokemonEmeraldEnv
 
 log = logging.getLogger("agent.train")
@@ -51,6 +54,12 @@ def main() -> int:
     parser.add_argument("--timesteps", type=int, default=1_000_000)
     parser.add_argument("--max-steps", type=int, default=2048)
     parser.add_argument("--resume", type=Path, default=None, help="checkpoint .zip to resume")
+    parser.add_argument("--run-id", default=None, help="capture run id (default: timestamp)")
+    parser.add_argument("--capture", dest="capture", action="store_true", default=True)
+    parser.add_argument("--no-capture", dest="capture", action="store_false")
+    parser.add_argument("--capture-every", type=int, default=200)
+    parser.add_argument("--clip-len", type=int, default=48)
+    parser.add_argument("--max-frame-gb", type=float, default=20.0)
     args = parser.parse_args()
 
     rom = os.environ.get("POKEMON_EMERALD_ROM")
@@ -61,13 +70,19 @@ def main() -> int:
         log.error("Missing %s — create it with tools/play_interactive.py", STATE_PATH)
         return 1
 
+    run_id = args.run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_dir = Path("captures") / run_id
+    # Guarantee the checkpoint dir exists for the final save, even with --no-capture
+    # on a run too short to trigger CheckpointCallback's own mkdir.
+    (run_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
+
     initial_states = load_initial_states(STATE_PATH, EXPLORER_DIR)
     log.info("Reset pool: %d state(s) (truck + %d frontier)", len(initial_states), len(initial_states) - 1)
     vec = SubprocVecEnv(
         [make_env(rom, initial_states, args.max_steps) for _ in range(args.envs)]
     )
     device = pick_device()
-    log.info("Training on device=%s with %d envs", device, args.envs)
+    log.info("Training on device=%s with %d envs (run=%s)", device, args.envs, run_id)
 
     if args.resume:
         model = PPO.load(args.resume, env=vec, device=device)
@@ -83,11 +98,39 @@ def main() -> int:
             verbose=1,
             tensorboard_log="runs",
         )
-    checkpoints = CheckpointCallback(
-        save_freq=max(50_000 // args.envs, 1), save_path="checkpoints", name_prefix="ppo_emerald"
+
+    callbacks = [
+        CheckpointCallback(
+            save_freq=max(50_000 // args.envs, 1),
+            save_path=str(run_dir / "checkpoints"),
+            name_prefix="ppo_emerald",
+        )
+    ]
+    if args.capture:
+        meta = {
+            "argv": sys.argv,
+            "total_timesteps": args.timesteps,
+            "rom": rom,
+            "initial_state": str(STATE_PATH),
+            "max_steps": args.max_steps,
+        }
+        callbacks.append(
+            RecorderCallback(
+                run_dir=run_dir,
+                capture_every=args.capture_every,
+                clip_len=args.clip_len,
+                max_frame_gb=args.max_frame_gb,
+                meta=meta,
+            )
+        )
+
+    model.learn(
+        total_timesteps=args.timesteps,
+        callback=CallbackList(callbacks),
+        tb_log_name=run_id,
+        reset_num_timesteps=False,
     )
-    model.learn(total_timesteps=args.timesteps, callback=checkpoints, reset_num_timesteps=False)
-    model.save("checkpoints/ppo_emerald_final")
+    model.save(str(run_dir / "checkpoints" / "ppo_emerald_final"))
     return 0
 
 

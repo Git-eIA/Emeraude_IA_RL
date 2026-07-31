@@ -156,3 +156,16 @@ def test_empty_initial_states_raises():
 
     with pytest.raises(ValueError):
         PokemonEmeraldEnv(FakeEmulator(), initial_states=[], max_steps=50)
+
+
+def test_info_exposes_pos_and_step():
+    env = PokemonEmeraldEnv(FakeEmulator(), initial_states=[b"x"], max_steps=10)
+    _, info = env.reset()
+    assert info["pos"] == (5, 5)  # FakeEmulator starts at (5, 5)
+    assert info["step"] == 0
+
+    # action index for "right" moves x from 5 -> 6
+    right = PokemonEmeraldEnv.ACTIONS.index("right")
+    _, _, _, _, info = env.step(right)
+    assert info["pos"] == (6, 5)
+    assert info["step"] == 1
