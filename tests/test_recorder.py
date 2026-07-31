@@ -69,3 +69,30 @@ def test_run_json_finalised_on_end(tmp_path):
     data = json.loads((tmp_path / "run1" / "run.json").read_text())
     assert data["final_timestep"] == 8
     assert "end_wall_time" in data
+
+
+# ---------------------------------------------------------------------------
+# Batch A (Task 3) — milestone logging + clip arming
+# ---------------------------------------------------------------------------
+
+
+def test_new_milestone_writes_row_and_arms_clip(tmp_path):
+    cb = _make_cb(tmp_path, n_envs=2, clip_len=5)
+    _step(cb, t=100, infos=[_info(milestones=("meet_rival",)), _info()], rewards=[1.0, 0.0])
+    cb._milestones_fh.flush()
+    rows = list(csv.reader((tmp_path / "run1" / "milestones.csv").open()))
+    assert rows[0] == ["t", "env", "milestone", "wall_time"]
+    assert rows[1][0:3] == ["100", "0", "meet_rival"]
+    assert cb._clip_tag[0] == "meet_rival_100"
+    # arming set clip_remaining, then _record_clips consumed one frame this step
+    assert cb._clip_remaining[0] == 4
+
+
+def test_seen_milestone_not_duplicated(tmp_path):
+    cb = _make_cb(tmp_path, n_envs=1, clip_len=1)
+    _step(cb, t=10, infos=[_info(milestones=("meet_rival",))], rewards=[0.0])
+    _step(cb, t=11, infos=[_info(milestones=("meet_rival",))], rewards=[0.0])
+    cb._milestones_fh.flush()
+    rows = list(csv.reader((tmp_path / "run1" / "milestones.csv").open()))
+    assert len(rows) == 2  # header + exactly one milestone row
+
