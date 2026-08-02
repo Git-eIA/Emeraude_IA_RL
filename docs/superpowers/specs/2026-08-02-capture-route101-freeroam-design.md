@@ -26,9 +26,12 @@ artifact `states/post_starter.state` so the smoke becomes load-bearing.
 ## Goal
 
 Produce `states/post_starter.state`: party level 5, free-roam on route_101
-`(0, 16)`, via a deterministic scripted walkthrough of the lab intro. The existing
-smoke `tests/test_campaign_rom.py` is **unchanged** — it simply turns green once
-the artifact exists.
+`(0, 16)`, via a scripted walkthrough of the lab intro. The walkthrough is NOT
+fully deterministic — Phase 0 reuses the stochastic Explorer policy (`deterministic=False`,
+~9-10/10 reaches the starter) so the tool wraps the whole run in a bounded retry
+loop, restarting from `initial.state` if a phase fails. The existing smoke
+`tests/test_campaign_rom.py` is **unchanged** — it simply turns green once the
+artifact exists.
 
 ## Approach (decided)
 
@@ -44,14 +47,29 @@ one-shot capture tool; we already have `capture_post_starter.py` as scaffolding.
 A disposable capture tool `tools/capture_route101_freeroam.py` that drives the
 **raw emulator** + `WorldReader` (NOT `PokemonEmeraldEnv`, which terminates at the
 starter milestone) through four phases, and writes `states/post_starter.state`
-when the player is confirmed free-roam on route_101.
+when the player is confirmed free-roam on route_101. The whole four-phase run sits
+inside a **bounded retry loop** (`for _ in range(MAX_ATTEMPTS)`): if any phase
+fails to reach its exit condition within its own bounded budget, the tool reloads
+`initial.state` and retries. Every phase loop is bounded (code-safety #2).
+
+It supersedes `tools/capture_post_starter.py`. Decision: keep the old tool until
+the new one produces the artifact and the smoke passes, then delete it in the same
+branch (it carries a now-obsolete KNOWN LIMITATION note).
+
+Fighter wiring for Phase 1: the tool loads the Fighter PPO checkpoint to build
+`predict: Callable[[np.ndarray], int]` and the type-chart `move_type_fn` (same
+wiring `env/battle_player.py` consumers already use), then passes both to
+`play_battle`. SB3/torch are imported inside the tool, not at module import of the
+env package.
 
 ## The four phases
 
 ### Phase 0 — truck → starter
 Run the trained Explorer (`checkpoints/ppo_emerald_final`) from `initial.state`
-until `starter_obtained` is observed. Reuses the proven policy (9-10/10 reliable);
-scripting the intro by hand would be absurd.
+until `starter_obtained` is observed, within a bounded step budget. Reuses the
+proven policy (9-10/10 reliable); scripting the intro by hand would be absurd. If
+the budget is exhausted without the starter, the phase fails and the outer retry
+loop restarts from `initial.state`.
 
 Plumbing detail (resolved at implementation): the milestone signal comes from the
 same `MilestoneTracker` the env uses, driven directly on the emulator, OR Phase 0
@@ -64,22 +82,53 @@ phases 1-3 must NOT go through the terminating env.
 until the battle resolves (`won`). (Decided: A2 — delegate to the Fighter rather
 than hardcoding battle inputs, since we already have a 10/10 Fighter.)
 
-### Phase 2 — lab `(1, 4)` (the brittle part)
-After the battle the player is warped to the lab. Drive with `navigate_to`
-(NOT via the env), targeting hardcoded cells:
-1. `navigate_to` toward Birch's cell.
-2. Press A to advance the Pokédex dialogue until the script gate clears.
-3. `navigate_to` toward the exit door cell.
+RISK (verify at smoke): the Fighter was trained on the 5 normal wild battles. The
+forced tutorial battle is story-framed ("Birch is in trouble") but mechanically a
+normal battle. If a forced dialogue frame breaks the Fighter's observation, fall
+back to hardcoded first-move spam (the level-5 starter over-determines the win vs a
+level-2 Poochyena). This fallback is only cut in if the smoke shows `play_battle`
+misbehaving.
 
-Cells are hardcoded from a **manual instrumented probe** (decided: A over reading
-the pokeemerald decomp or auto-`map_map`), each with a `# NOTE:` recording its
-origin. `navigate_to` is called **without `memory`** so the only branch that reads
+### Phase 2 — lab (the brittle part)
+After the battle the player is warped into Birch's lab, where a **cutscene may
+auto-trigger** (Birch hands over the Pokédex and Poké Balls without the player
+walking to him). The manual probe (below) determines whether Phase 2 is:
+
+- **auto-dialogue** (likely): press A in a bounded loop to advance the cutscene
+  until the script gate clears — no `navigate_to` toward Birch needed; or
+- **walk-to-Birch**: `navigate_to` toward Birch's hardcoded cell, then press A.
+
+Either way, the exit condition is the **script gate clearing**, detected by a
+concrete signal the probe must capture — NOT a fixed press count. Candidate
+signals, resolved by the probe: a test d-pad press changes `pos` again (player
+regained control), or the RAM `TOWN_STATE` var advances. Once controllable,
+`navigate_to` toward the exit door cell to leave the lab.
+
+`navigate_to` is called **without `memory`** so the only branch that reads
 `in_battle()` (the `has_grass` learning) is short-circuited — the `(1, 4)`
-false-positive does not affect pathfinding.
+false-positive does not affect pathfinding. Lab cells are hardcoded from the manual
+probe (decided: A over reading the pokeemerald decomp or auto-`map_map`), each with
+a `# NOTE:` recording its origin.
 
-### Phase 3 — lab → route_101
-`navigate_to` toward route_101 `(0, 16)` free-roam, confirm a real position change
-there, then `emulator.save_state()` → `states/post_starter.state`.
+### Phase 3 — lab → Littleroot → route_101 (INTER-map)
+The lab exit does NOT land on route_101. Leaving the lab warps the player to
+**Littleroot Town `(0, 9)`**; route_101 `(0, 16)` is a **separate map** to the
+north. This is a multi-map crossing, and `navigate_to` is intra-map only, so it
+cannot be done in a single call. `memory` is empty (no learned portals), so
+`travel_to` has no route either.
+
+Phase 3 is therefore a **scripted edge-crossing sequence**, each leg bounded:
+1. `navigate_to` toward Littleroot's north edge cell (hardcoded from the probe).
+2. Press the north d-pad until the map transition fires (`snapshot().map_id`
+   changes to route_101 `(0, 16)`), re-snapshotting through the SaveBlock
+   relocation frames.
+3. Confirm free-roam on route_101 with a real `pos` change, then
+   `emulator.save_state()` → `states/post_starter.state`.
+
+The probe must therefore also capture: the Littleroot north-edge cell, and confirm
+the lab-exit → Littleroot → route_101 map-id chain `(1, ?) → (0, 9) → (0, 16)`
+(the lab map-id `(1, 4)` is from an earlier trajectory trace and must be
+re-confirmed by the probe).
 
 ## Technical risk — the `in_battle()` false-positive on `(1, 4)`
 
@@ -96,9 +145,21 @@ Two places to verify at the ROM smoke:
 
 ## Prerequisite step (part of the plan, not shipped code)
 
-A one-shot manual instrumented probe to read three cells in the lab: Birch's
-position, the exit door cell, and the route_101 entry cell. These are hardcoded
-into the driver with origin notes.
+A one-shot manual instrumented probe (walk the post-battle intro by hand, logging
+`map_id`/`pos`/`TOWN_STATE`/`in_battle` on every change) that resolves ALL the
+open unknowns before the driver is written:
+
+1. **Lab map-id** — confirm/correct the lab map `(1, 4)` from the earlier trace.
+2. **Phase 2 mode** — is the Birch cutscene auto-triggered (press A only) or does
+   it require walking to Birch? If walk-to-Birch, his cell.
+3. **Gate-clear signal** — how to detect the player regained control (test-press
+   changes `pos`, or which `TOWN_STATE` value).
+4. **Lab exit door cell** — the cell that warps out of the lab.
+5. **Map chain** — confirm lab-exit lands on Littleroot `(0, 9)`, and the
+   Littleroot **north-edge cell** whose north press transitions to route_101
+   `(0, 16)`.
+
+All of these are hardcoded into the driver with `# NOTE:` origin comments.
 
 ## Non-goals
 
@@ -110,7 +171,10 @@ into the driver with origin notes.
 
 ## Deliverables checklist
 
-- `tools/capture_route101_freeroam.py` — the four-phase capture driver.
-- Hardcoded lab coordinates with `# NOTE:` origin, obtained via manual probe.
+- Manual instrumented probe run resolving the 5 unknowns above (prerequisite).
+- `tools/capture_route101_freeroam.py` — the four-phase capture driver, wrapped in
+  a bounded retry loop, all phase loops bounded.
+- Hardcoded lab/Littleroot cells + gate-clear signal with `# NOTE:` origin.
+- `tools/capture_post_starter.py` deleted once the new tool works.
 - `states/post_starter.state` generated locally (gitignored).
 - `tests/test_campaign_rom.py` passing with the artifact present.
