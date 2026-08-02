@@ -1,7 +1,7 @@
 # Capture route_101 free-roam savestate — design spec
 
 **Date:** 2026-08-02
-**Status:** design approved, spec under review
+**Status:** implemented (2026-08-02)
 **Follow-up to:** P4 étape 7 (run_campaign ROM smoke — descoped to gated plumbing, merge `a41cb75`)
 
 ## Problem
@@ -178,3 +178,35 @@ All of these are hardcoded into the driver with `# NOTE:` origin comments.
 - `tools/capture_post_starter.py` deleted once the new tool works.
 - `states/post_starter.state` generated locally (gitignored).
 - `tests/test_campaign_rom.py` passing with the artifact present.
+
+## Finding after implementation (2026-08-02)
+
+The scripted walkthrough works and produces the artifact. `tests/test_campaign_rom.py`
+now **passes** (was a documented skip) with `states/post_starter.state` present, and
+the full suite stays green (251 passed, 12 skipped without the ROM).
+
+Discovered constants (from `probe_lab_intro.py`, over `states/lab_entry.state`):
+
+- **Lab map-id:** `(1, 4)` — confirmed (matched the earlier trajectory trace).
+- **Phase 2 mode:** auto-dialogue, cleared by **A-spam only** (no walk-to-Birch). The
+  intro dialogue is LONG — ~600 A-presses (Pokédex + Poké Balls + rival naming). The
+  driver budgets 2000 A-presses and probes a test move every 200 to detect regained
+  control. The earlier spec estimate of "a bounded loop" was right in shape but the
+  count is an order of magnitude larger than a naïve guess (the first draft used 40).
+- **Gate-clear signal:** a **test d-pad press that changes `pos`** (the RAM `in_battle`
+  false-positive persists the whole time and is never gated on — confirmed).
+- **Lab exit:** walk **DOWN** from ~`(6, 12)` → warps to **Littleroot `(0, 9)`**,
+  landing at pos `(7, 16)`.
+- **Phase 3 (inter-map) correction:** the **x=7 column in Littleroot is the lab-door
+  re-entry warp** — pressing UP from x=7 re-enters the lab. `navigate_to` (planned) was
+  therefore replaced by a proven scripted sequence: press **RIGHT 3 times** to reach the
+  x=10 column, THEN walk **UP** → route_101 `(0, 16)` at `(10, 19)`. This avoids the A*
+  optimistic-grid routing up the warp column.
+- **Map chain confirmed:** lab `(1, 4)` → Littleroot `(0, 9)` → route_101 `(0, 16)`.
+
+Deliverable shape differs slightly from the plan: instead of one four-phase driver with
+an outer retry loop, the slow stochastic intro (Phases 0-1) was factored into a separate
+cache tool `tools/capture_lab_entry.py` (Explorer → starter → Fighter wins the forced
+battle → `states/lab_entry.state`), so `capture_route101_freeroam.py` (Phases 2-3) is
+fast and deterministic from the cache. `capture_post_starter.py` and the disposable
+`probe_lab_intro.py` were deleted; the two remaining tools reproduce the artifact.
