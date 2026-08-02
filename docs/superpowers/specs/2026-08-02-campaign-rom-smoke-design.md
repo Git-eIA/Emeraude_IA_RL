@@ -113,3 +113,25 @@ The single test:
 - The smoke is gated; the pure suite is unchanged (still 261 passed + 1 skipped).
 - Acceptance: run the capture tool, confirm it prints a level-5 party on the route_101
   map, then run the smoke and confirm it PASSES (not skips) — making it load-bearing.
+
+## Finding after implementation — descoped to gated plumbing (2026-08-02)
+
+The capture premise turned out to be **invalid**: there is no natural moment where the
+trained Explorer is in free-roam on route_101 with a party. Traced trajectory:
+
+- `starter_obtained` fires DURING the bag-grab cutscene on `(0,16)` — the player cannot
+  walk there. A capture on the first out-of-battle frame is stuck (every d-pad press is
+  swallowed); the smoke then fails with `unreachable` and pos never changing.
+- The forced Poochyena battle runs, then the player is **warped to Birch's lab `(1,4)`**,
+  where `reader.in_battle()` reads a **false-positive True** the whole time.
+- The Explorer's episode **ends at `starter_obtained`** (terminal). Post-starter is
+  off-distribution and the lab has **script gates** (talk to Birch for the Pokédex before
+  you can leave) a wandering policy will not clear. It never returns to route_101 free-roam
+  within 8000 steps.
+
+**Decision (Option A):** land the plumbing honestly. Keep the capture tool (heuristic
+corrected: anchor on a real overworld position change, not just an out-of-battle frame —
+the original latched the pre-battle window) with a KNOWN LIMITATION note, and keep the
+double-skip gated smoke. Both are correct; the smoke becomes load-bearing the instant a
+route_101 free-roam savestate is produced. That capture is a **follow-up palier** (scripted
+lab-intro walkthrough or a further-progressed Explorer), not "plumbing".

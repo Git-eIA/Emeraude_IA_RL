@@ -3,6 +3,12 @@
 Load-bearing when states/post_starter.state exists (captured by
 tools/capture_post_starter.py): a level-5 party on the route_101 map lets
 run_campaign skip level_up by construction and walk a real advance on the ROM.
+
+CURRENTLY a documented skip: the artifact cannot be auto-captured with the current
+Explorer (its episode ends at starter_obtained; post-starter free-roam sits behind
+Birch's lab intro — see tools/capture_post_starter.py KNOWN LIMITATION). The wiring
+below is correct and becomes load-bearing the moment a route_101 free-roam savestate
+is produced by a follow-up (scripted lab walkthrough or a further-progressed policy).
 """
 from __future__ import annotations
 
