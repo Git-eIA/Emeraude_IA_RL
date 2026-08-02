@@ -177,7 +177,7 @@ def _walk_until_encounter(emulator: Any, reader: Any) -> str:
     return "encounter_started" if reader.in_battle() else "no_encounter"
 
 
-def _reached(levels: list[int], target: int) -> bool:
+def reached(levels: list[int], target: int) -> bool:
     """True when the party's mean level is at or above the target."""
     return bool(levels) and sum(levels) / len(levels) >= target
 
@@ -207,7 +207,7 @@ def _execute_level_up(
     _execute_grind returns "encounter_started", surfaced verbatim.
     """
     for _ in range(max_cycles):
-        if _reached(reader.party_levels(), target_level):
+        if reached(reader.party_levels(), target_level):
             return "leveled_up"
         result = _execute_grind(
             emulator, reader, memory, wallmap,
@@ -224,4 +224,4 @@ def _execute_level_up(
             continue   # no battle this cycle (RNG); retry, budget-bounded
         else:
             return result
-    return "leveled_up" if _reached(reader.party_levels(), target_level) else "grind_exhausted"
+    return "leveled_up" if reached(reader.party_levels(), target_level) else "grind_exhausted"
