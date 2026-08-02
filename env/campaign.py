@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from env.orders import Order, _reached, execute_order
+from env.orders import Order, execute_order, reached
 
 
 @dataclass(frozen=True)
@@ -23,7 +23,7 @@ class Milestone:
     least `target_level`."""
 
     destination: str    # a name in orders.DESTINATIONS
-    target_level: int   # required mean party level before advancing
+    target_level: int   # mean, not max — one powerhouse shouldn't unlock advance
 
 
 # Hand-written curriculum. Like DESTINATIONS, a name means something to the chef
@@ -54,7 +54,7 @@ def run_campaign(
     Order | any non-"arrived" outcome from an advance Order.
     """
     for milestone in curriculum:
-        if not _reached(reader.party_levels(), milestone.target_level):
+        if not reached(reader.party_levels(), milestone.target_level):
             leveled = order_fn(
                 Order(milestone.destination, "level_up", "win"),
                 emulator, reader, memory, wallmap,
