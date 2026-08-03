@@ -85,6 +85,8 @@ def navigate_to(
         # Fight before checking arrival: a won battle returns None and falls
         # through to the target check, so arriving-on-grass still reports
         # "arrived"; only an unwinnable/no-Fighter battle aborts here.
+        # Position is frozen during combat in Emerald, so `before` stays
+        # accurate for the target check and plan_path below without a re-read.
         interruption = _handle_battle_interruption(
             emulator, reader, move_type_fn, predict
         )
