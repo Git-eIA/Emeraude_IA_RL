@@ -104,17 +104,31 @@ Fighter-less interruption means the survey can't proceed). This mirrors
 `BATTLE_OUTCOMES = ("battle_lost", "battle_timeout", "battle_interrupted")`
 constant from `env/map_traveler.py`.
 
-```python
-outcome = travel_to(..., move_type_fn=move_type_fn, predict=predict)
-if outcome in BATTLE_OUTCOMES:
-    return SurveyReport(tuple(surveyed), tuple(failed) + ((target, f"travel:{outcome}"),))
-if outcome != "arrived":
-    failed.append((target, f"travel:{outcome}"))
-    continue
+**Preserve the existing travel guard.** `travel_to` today runs only inside
+`if here != target and target != start:` (skip travel when already standing on
+the target/start map — this also guards `_entry_cell` against an empty index).
+Keep that guard; only add the battle-outcome check inside it:
 
-result = map_map(..., move_type_fn=move_type_fn, predict=predict)
+```python
+if here != target and target != start:
+    outcome = travel_to(
+        emulator, reader, memory, wallmap, target, _entry_cell(memory, target),
+        move_type_fn=move_type_fn, predict=predict,
+    )
+    if outcome in BATTLE_OUTCOMES:
+        failed.append((target, f"travel:{outcome}"))
+        return SurveyReport(tuple(surveyed), tuple(failed))
+    if outcome != "arrived":
+        failed.append((target, f"travel:{outcome}"))
+        continue
+
+result = map_map(
+    emulator, reader, memory, wallmap, target,
+    move_type_fn=move_type_fn, predict=predict,
+)
 if result in BATTLE_OUTCOMES:
-    return SurveyReport(tuple(surveyed), tuple(failed) + ((target, f"map:{result}"),))
+    failed.append((target, f"map:{result}"))
+    return SurveyReport(tuple(surveyed), tuple(failed))
 if result in ("left_map", "budget_exhausted"):
     failed.append((target, f"map:{result}"))
 surveyed.append(target)
@@ -139,9 +153,16 @@ one-shot artifact producer, gitignored like the other states.
 that state (first `map_map` iteration always sees an in-progress battle), wraps
 the real Fighter checkpoint `ppo_fighter_final.zip` into `predict`, runs
 `map_map` on route_101, and asserts:
-- the outcome is **not** a battle outcome (the Fighter won and the survey
-  resumed), and
-- no false wall was recorded at the pre-battle cell (survey progressed).
+- the outcome is **not** a battle outcome (`result not in BATTLE_OUTCOMES`) — the
+  Fighter won and the survey resumed rather than aborting;
+- the battle was actually resolved (`not reader.in_battle()` after the call), so
+  the assertion above isn't vacuous on a state that never re-entered combat;
+- grass was learned at the starting cell
+  (`memory.cells_labeled("has_grass")` is non-empty), proving the loop reached
+  the recording block on the in-battle frame.
+
+These are stable observables; asserting "no wall at the pre-battle cell" is
+avoided because the probed frontier cell is emulator-dependent.
 
 SB3/torch imported inside the test body (not at collect), same pattern as
 `test_battle_player_rom.py`.
