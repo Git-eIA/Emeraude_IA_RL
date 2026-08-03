@@ -176,3 +176,100 @@ def test_unreachable_when_the_crossing_press_cannot_reach_the_far_side() -> None
         goal_map=(0, 1), goal_cell=(1, 0),
     )
     assert result == "unreachable"
+
+
+def _u16b(v: int) -> bytes:
+    return bytes([v & 0xFF, (v >> 8) & 0xFF])
+
+
+class LostBattleWorld:
+    """Same-map world where walking treads grass at grass_at; the Fighter loses.
+
+    Acts as emulator (step + read_bytes) and reader (snapshot). Movement is free
+    until the battle starts; the battle is a terminal loss (outcome 2).
+    """
+
+    def __init__(self, map_id: tuple[int, int], start: tuple[int, int],
+                 grass_at: tuple[int, int]) -> None:
+        self.map_id = map_id
+        self.pos = start
+        self._grass_at = grass_at
+        self._battle = False
+        self._fought = False
+        self._outcome = 0
+        self._phase = "menu"
+
+    def step(self, keys: int, frames: int) -> None:
+        if self._battle:
+            if keys == 0:
+                return
+            if self._phase == "menu" and keys & buttons.KEY_A:
+                self._phase = "moves"
+            elif self._phase == "moves" and keys & buttons.KEY_A:
+                self._outcome = 2   # terminal loss
+                self._battle = False
+            return
+        direction = _KEY_TO_DIR.get(keys)
+        if direction is None:
+            return
+        dx, dy = _DELTAS[direction]
+        self.pos = (self.pos[0] + dx, self.pos[1] + dy)
+        if self.pos == self._grass_at and not self._fought:
+            self._battle = True
+            self._fought = True
+
+    def snapshot(self) -> WorldSnapshot:
+        return WorldSnapshot(map_id=self.map_id, pos=self.pos, tile_behavior=None)
+
+    def party_hp(self) -> list[tuple[int, int]]:
+        return [(5, 5)]
+
+    def in_battle(self) -> bool:
+        return self._battle
+
+    def read_bytes(self, addr: int, size: int) -> bytes:
+        from env.game_state import (
+            ACTION_MENU_VALUE,
+            BATTLE_MON_SIZE,
+            GBATTLE_ACTION_MENU_ADDR,
+            GBATTLE_MONS_ADDR,
+            GBATTLE_OUTCOME_ADDR,
+            GBATTLE_TYPE_FLAGS_ADDR,
+            GMOVE_RESULT_FLAGS_ADDR,
+        )
+
+        if addr == GBATTLE_ACTION_MENU_ADDR:
+            return bytes([ACTION_MENU_VALUE if self._phase == "menu" else 0])
+        if addr == GBATTLE_TYPE_FLAGS_ADDR:
+            return _u16b(0 if self._outcome else 1) + b"\x00\x00"
+        if addr == GBATTLE_OUTCOME_ADDR:
+            return bytes([self._outcome])
+        if addr == GMOVE_RESULT_FLAGS_ADDR:
+            return _u16b(0)
+        pbase = GBATTLE_MONS_ADDR
+        obase = GBATTLE_MONS_ADDR + BATTLE_MON_SIZE
+        for base, hp, mx in ((pbase, 19, 19), (obase, 18, 18)):
+            if base <= addr < base + BATTLE_MON_SIZE:
+                buf = bytearray(BATTLE_MON_SIZE)
+                buf[0x00:0x02] = _u16b(1)
+                buf[0x0C:0x0E] = _u16b(1)
+                buf[0x24] = 10
+                buf[0x21], buf[0x22] = 12, 12
+                buf[0x28:0x2A] = _u16b(hp)
+                buf[0x2A] = 5
+                buf[0x2C:0x2E] = _u16b(mx)
+                off = addr - base
+                return bytes(buf[off : off + size])
+        raise AssertionError(f"unexpected read at 0x{addr:08X}")
+
+
+def test_battle_loss_propagates_from_the_first_hop() -> None:
+    # Same-map goal: travel_to delegates to navigate_to, which treads grass at
+    # (1,0), loses the battle, and the loss propagates as battle_lost (not "lost").
+    world = LostBattleWorld(map_id=(0, 0), start=(0, 0), grass_at=(1, 0))
+    result = travel_to(
+        world, world, MapMemory(), WallMap(),
+        goal_map=(0, 0), goal_cell=(2, 0),
+        move_type_fn=lambda mid: 12, predict=lambda obs: 0,
+    )
+    assert result == "battle_lost"

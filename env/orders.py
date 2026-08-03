@@ -71,7 +71,8 @@ def execute_order(
 
     Returns "unknown_destination" | "no_healing_spot_known" | "no_grass_spot_known" |
     one of travel_to's outcomes ("arrived" | "unknown_route" | "unreachable" |
-    "lost" | "timeout") | "healed" | "heal_failed" | "encounter_started" |
+    "lost" | "timeout" | "battle_lost" | "battle_timeout" | "battle_interrupted") |
+    "healed" | "heal_failed" | "encounter_started" |
     "no_encounter" | a play_battle outcome ("won" | "lost" | "battle_timeout").
     level_up adds: "leveled_up" | "grind_exhausted".
     """
@@ -94,7 +95,8 @@ def execute_order(
         return "unknown_destination"
     goal_map, goal_cell = dest
     return travel_to(
-        emulator, reader, memory, wallmap, goal_map, goal_cell, max_hops=max_hops
+        emulator, reader, memory, wallmap, goal_map, goal_cell,
+        max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
     )
 
 

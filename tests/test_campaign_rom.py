@@ -4,11 +4,10 @@ Load-bearing when states/post_starter.state exists (captured by
 tools/capture_post_starter.py): a level-5 party on the route_101 map lets
 run_campaign skip level_up by construction and walk a real advance on the ROM.
 
-CURRENTLY a documented skip: the artifact cannot be auto-captured with the current
-Explorer (its episode ends at starter_obtained; post-starter free-roam sits behind
-Birch's lab intro — see tools/capture_post_starter.py KNOWN LIMITATION). The wiring
-below is correct and becomes load-bearing the moment a route_101 free-roam savestate
-is produced by a follow-up (scripted lab walkthrough or a further-progressed policy).
+Load-bearing since the scripted lab walkthrough (tools/capture_route101_freeroam.py)
+produced states/post_starter.state. run_campaign wires no Fighter yet, so on the real
+grassy route_101 the advance hits a wild battle and returns "battle_interrupted" — the
+honest outcome of interruptible navigation without a Fighter.
 """
 from __future__ import annotations
 
@@ -49,5 +48,15 @@ def test_run_campaign_skips_level_up_and_advances_on_real_rom() -> None:
         curriculum=(Milestone("route_101", 5),),
     )
 
-    assert outcome in {"campaign_complete", "unreachable", "left_map", "timeout"}
-    assert outcome == "campaign_complete" or reader.snapshot().pos != start.pos
+    # "battle_interrupted": run_campaign wires no Fighter (move_type_fn/predict
+    # default None), so a wild battle on route_101's grass legitimately aborts the
+    # advance here — the honest outcome of interruptible-nav without a Fighter.
+    assert outcome in {
+        "campaign_complete", "unreachable", "left_map", "timeout", "battle_interrupted"
+    }
+    # A battle interruption itself proves advance walked into grass; otherwise
+    # require an actual position change to prove a real advance ran.
+    assert (
+        outcome in {"campaign_complete", "battle_interrupted"}
+        or reader.snapshot().pos != start.pos
+    )
