@@ -39,7 +39,6 @@ from env.pokemon_env import PokemonEmeraldEnv
 from env.world_reader import WorldReader
 
 OUT_PATH = Path("states/trainer_battle.state")
-_DIRECTIONS = (KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT)
 _HEADING_MAP = {"up": KEY_UP, "down": KEY_DOWN, "left": KEY_LEFT, "right": KEY_RIGHT}
 
 
