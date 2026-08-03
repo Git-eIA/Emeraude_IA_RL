@@ -75,6 +75,6 @@ def play_trainer_battle(
 
 
 def _result(outcome: int) -> str:
-    # NOTE: assumes predict never escapes; a wild grind battle only ends by a
-    # terminal outcome, so battle-end with outcome==0 is not reachable here.
+    # NOTE: assumes predict never escapes; neither caller (wild or trainer) reaches
+    # here with outcome==0, so battle-end with outcome==0 is not reachable.
     return "won" if outcome & 0x1 else "lost"
