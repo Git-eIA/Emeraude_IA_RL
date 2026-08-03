@@ -168,3 +168,13 @@ ROM: no new mode-level smoke (deferred, §5). The capture tool makes part 1's ex
 - Modify: `env/campaign.py` (`Milestone.trainer` + run_campaign wiring + seed)
 - Create: `tools/capture_rival_battle.py`
 - Modify: `tests/test_orders.py`, `tests/test_campaign.py`
+
+## Finding (implementation)
+
+`tools/capture_trainer_battle.py` already existed and saves `states/trainer_battle.state`
+on ANY in_battle. `tools/capture_rival_battle.py` is the route_103-specific variant: it
+verifies the battle is on the target map before saving (a wild battle on the way aborts
+with guidance), and defaults `--heading up`. Running it locally is what makes Brique 3
+part 1's gated `test_fighter_wins_a_real_trainer_battle` load-bearing and reveals the
+real route_103 map/cell/heading to backfill into `DESTINATIONS` + `TRAINER_APPROACH`
+(currently the unverified placeholders `((0, 18), (9, 5))` and `KEY_UP`). Not run in CI.
