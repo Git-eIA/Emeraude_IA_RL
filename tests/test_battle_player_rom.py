@@ -1,4 +1,5 @@
-"""Gated ROM smoke: the real Fighter wins a real wild battle via play_battle."""
+"""Gated ROM smokes: the real Fighter wins real battles (wild via play_battle,
+trainer via play_trainer_battle)."""
 from __future__ import annotations
 
 import os

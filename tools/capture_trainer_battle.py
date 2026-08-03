@@ -74,7 +74,7 @@ def main() -> None:
     reader = WorldReader(env.emulator.read_bytes)
     env.reset()
 
-    fixed_key: int | None = _HEADING_MAP.get(args.heading) if args.heading else None
+    fixed_key: int | None = _HEADING_MAP.get(args.heading)
 
     for i in range(args.max_steps):
         key = fixed_key if fixed_key is not None else _DIRECTIONS[i % len(_DIRECTIONS)]
