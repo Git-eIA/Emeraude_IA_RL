@@ -719,3 +719,55 @@ def test_advance_without_fighter_reports_battle_interrupted() -> None:
     order = Order(destination="route_101", mode="advance", combat="win")
     result = execute_order(order, world, world, MapMemory(), WallMap())
     assert result == "battle_interrupted"
+
+
+# ---------------------------------------------------------------------------
+# battle_trainer mode tests
+# ---------------------------------------------------------------------------
+
+
+def test_route_103_is_a_known_destination() -> None:
+    assert "route_103" in DESTINATIONS
+
+
+def test_battle_trainer_wins_at_the_destination() -> None:
+    map_id, cell = DESTINATIONS["route_103"]
+    world = GrassBattleWorld(map_id, cell, steps_to_encounter=3)
+    order = Order(destination="route_103", mode="battle_trainer", combat="win")
+    result = execute_order(
+        order, world, world, MapMemory(), WallMap(),
+        move_type_fn=lambda mid: 12, predict=lambda obs: 0,
+    )
+    assert result == "won"
+
+
+def test_battle_trainer_without_fighter_reports_encounter_started() -> None:
+    map_id, cell = DESTINATIONS["route_103"]
+    world = GrassBattleWorld(map_id, cell, steps_to_encounter=3)
+    order = Order(destination="route_103", mode="battle_trainer", combat="win")
+    result = execute_order(order, world, world, MapMemory(), WallMap())
+    assert result == "encounter_started"
+
+
+def test_battle_trainer_without_a_trainer_returns_no_trainer() -> None:
+    map_id, cell = DESTINATIONS["route_103"]
+    world = GrassBattleWorld(map_id, cell, steps_to_encounter=10_000)
+    order = Order(destination="route_103", mode="battle_trainer", combat="win")
+    result = execute_order(
+        order, world, world, MapMemory(), WallMap(),
+        move_type_fn=lambda mid: 12, predict=lambda obs: 0,
+    )
+    assert result == "no_trainer"
+
+
+def test_battle_trainer_unknown_destination() -> None:
+    order = Order(destination="atlantide", mode="battle_trainer", combat="win")
+    result = execute_order(order, None, None, MapMemory(), WallMap())
+    assert result == "unknown_destination"
+
+
+def test_battle_trainer_passes_through_travel_failure() -> None:
+    world = NamedWorld(start_map=(0, 9), start_cell=(0, 10))
+    order = Order(destination="route_103", mode="battle_trainer", combat="win")
+    result = execute_order(order, world, world, MapMemory(), WallMap())
+    assert result == "unknown_route"
