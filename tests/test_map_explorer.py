@@ -206,14 +206,134 @@ class EncounterExploreWorld(ExploreWorld):
         return self.pos == self._grass_at
 
 
-def test_map_map_learns_grass_cell_when_a_battle_fires():
+def test_map_map_learns_grass_then_aborts_without_a_fighter():
     target = (3, 3)
     walls = _sealed_room_walls(2, 2)  # cells (0,0),(1,0),(0,1),(1,1)
     world = EncounterExploreWorld(grass_at=(1, 0), map_id=target, start=(0, 0), walls=walls)
     memory = MapMemory()
     wallmap = WallMap()
 
+    # No Fighter deps: stepping onto grass learns it, then aborts on that frame.
     result = map_map(world, world, memory, wallmap, target, max_steps=200)
 
-    assert result == "complete"
+    assert result == "battle_interrupted"
     assert ((3, 3), (1, 0)) in memory.cells_labeled("has_grass")
+
+
+def _u16b(v: int) -> bytes:
+    return bytes([v & 0xFF, (v >> 8) & 0xFF])
+
+
+class BattleExploreWorld(ExploreWorld):
+    """ExploreWorld pre-armed in a wild battle at the start cell. A supplied
+    Fighter plays it via play_battle; on a win in_battle drops so the survey
+    resumes. can_win=False makes the Fighter lose. Serves battle-reader bytes
+    exactly like BattleNavWorld in test_live_navigator."""
+
+    _RESOLVE_PRESSES = 2
+
+    def __init__(self, can_win: bool = True, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._can_win = can_win
+        self._battle = True
+        self._opp_hp = 18
+        self._my_hp = 19
+        self._outcome = 0
+        self._phase = "menu"
+        self._resolve_left = 0
+
+    def step(self, keys: int, frames: int) -> None:
+        if self._battle:
+            self._battle_step(keys)
+            return
+        super().step(keys, frames)
+
+    def _battle_step(self, keys: int) -> None:
+        if keys == 0:
+            return
+        if self._phase == "menu" and keys & buttons.KEY_A:
+            self._phase = "moves"
+        elif self._phase == "moves" and keys & buttons.KEY_A:
+            if not self._can_win:
+                self._outcome = 2   # terminal loss -> play_battle returns "lost"
+                self._battle = False
+                return
+            self._opp_hp = max(0, self._opp_hp - 6)
+            if self._opp_hp == 0:
+                self._outcome = 1
+                self._battle = False   # won: resume surveying
+            self._phase = "resolving"
+            self._resolve_left = self._RESOLVE_PRESSES
+        elif self._phase == "resolving" and keys & buttons.KEY_A:
+            self._resolve_left -= 1
+            if self._resolve_left <= 0 and self._outcome == 0:
+                self._phase = "menu"
+
+    def in_battle(self) -> bool:
+        return self._battle
+
+    def read_bytes(self, addr: int, size: int) -> bytes:
+        from env.game_state import (
+            ACTION_MENU_VALUE,
+            BATTLE_MON_SIZE,
+            GBATTLE_ACTION_MENU_ADDR,
+            GBATTLE_MONS_ADDR,
+            GBATTLE_OUTCOME_ADDR,
+            GBATTLE_TYPE_FLAGS_ADDR,
+            GMOVE_RESULT_FLAGS_ADDR,
+        )
+
+        if addr == GBATTLE_ACTION_MENU_ADDR:
+            return bytes([ACTION_MENU_VALUE if self._phase == "menu" else 0])
+        if addr == GBATTLE_TYPE_FLAGS_ADDR:
+            return _u16b(0 if self._outcome else 1) + b"\x00\x00"
+        if addr == GBATTLE_OUTCOME_ADDR:
+            return bytes([self._outcome])
+        if addr == GMOVE_RESULT_FLAGS_ADDR:
+            return _u16b(0)
+        pbase = GBATTLE_MONS_ADDR
+        obase = GBATTLE_MONS_ADDR + BATTLE_MON_SIZE
+        for base, hp, mx in ((pbase, self._my_hp, 19), (obase, self._opp_hp, 18)):
+            if base <= addr < base + BATTLE_MON_SIZE:
+                buf = bytearray(BATTLE_MON_SIZE)
+                buf[0x00:0x02] = _u16b(1)
+                buf[0x0C:0x0E] = _u16b(1)
+                buf[0x24] = 10
+                buf[0x21], buf[0x22] = 12, 12
+                buf[0x28:0x2A] = _u16b(hp)
+                buf[0x2A] = 5
+                buf[0x2C:0x2E] = _u16b(mx)
+                off = addr - base
+                return bytes(buf[off : off + size])
+        raise AssertionError(f"unexpected read at 0x{addr:08X}")
+
+
+def test_map_map_fighter_wins_the_battle_and_survey_completes():
+    target = (3, 3)
+    walls = _sealed_room_walls(2, 2)
+    world = BattleExploreWorld(map_id=target, start=(0, 0), walls=walls)
+    memory = MapMemory()
+    wallmap = WallMap()
+
+    result = map_map(
+        world, world, memory, wallmap, target, max_steps=200,
+        move_type_fn=lambda mid: 12, predict=lambda obs: 0,
+    )
+
+    assert result == "complete"
+    assert not world._battle  # battle was actually resolved before the survey finished
+
+
+def test_map_map_fighter_loss_aborts_the_survey():
+    target = (3, 3)
+    walls = _sealed_room_walls(2, 2)
+    world = BattleExploreWorld(map_id=target, start=(0, 0), walls=walls, can_win=False)
+    memory = MapMemory()
+    wallmap = WallMap()
+
+    result = map_map(
+        world, world, memory, wallmap, target, max_steps=200,
+        move_type_fn=lambda mid: 12, predict=lambda obs: 0,
+    )
+
+    assert result == "battle_lost"
