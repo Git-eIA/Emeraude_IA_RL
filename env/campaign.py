@@ -6,8 +6,8 @@ level_up Order (which grinds + heals itself to the target); then emit an advance
 Order to reach the destination. run_campaign composes execute_order — it adds no
 navigation, combat, or RAM logic of its own, only the sequencing.
 
-advance is navigation-only in v1 (reach the place); fighting the leader there is
-deferred. No trained Strategist, no capture directive here.
+advance is navigation-only (reach the place); for trainer milestones a battle_trainer
+Order is emitted after arrival. No trained Strategist, no capture directive here.
 """
 from __future__ import annotations
 
