@@ -206,16 +206,140 @@ class EncounterFakeWorld(FakeWorld):
         return self.pos == self._grass_at
 
 
-def test_learns_grass_cell_on_the_in_battle_edge() -> None:
-    # Walking (0,0)->(2,0); a battle fires on (1,0), which must be tagged has_grass.
+def test_no_fighter_learns_grass_then_returns_battle_interrupted() -> None:
+    # Walking (0,0)->(2,0); a battle fires on (1,0). With no Fighter wired the
+    # cell is still tagged has_grass (recording runs first), then navigate_to
+    # aborts with battle_interrupted.
     world = EncounterFakeWorld(grass_at=(1, 0), start=(0, 0))
     memory = MapMemory()
     result = navigate_to(world, world, WallMap(), target=(2, 0), max_steps=50, memory=memory)
-    assert result == "arrived"
+    assert result == "battle_interrupted"
     assert memory.cells_labeled("has_grass") == [((0, 0), (1, 0))]
 
 
-def test_navigate_without_memory_ignores_battles() -> None:
+def test_no_fighter_returns_battle_interrupted_even_without_memory() -> None:
+    # memory=None: the battle is still detected and aborts with battle_interrupted.
     world = EncounterFakeWorld(grass_at=(1, 0), start=(0, 0))
     result = navigate_to(world, world, WallMap(), target=(2, 0), max_steps=50)
-    assert result == "arrived"  # memory=None: no learning path taken, no crash
+    assert result == "battle_interrupted"
+
+
+def _u16b(v: int) -> bytes:
+    return bytes([v & 0xFF, (v >> 8) & 0xFF])
+
+
+class BattleNavWorld(FakeWorld):
+    """FakeWorld that starts a wild battle on grass_at. The injected Fighter
+    plays it out via play_battle; on a win the battle clears (in_battle drops to
+    False) so walking resumes. can_win=False makes the Fighter lose.
+
+    Serves the battle-reader bytes exactly like GrassBattleWorld in test_orders.
+    """
+
+    _RESOLVE_PRESSES = 2
+
+    def __init__(self, grass_at: tuple[int, int], can_win: bool = True,
+                 **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._grass_at = grass_at
+        self._can_win = can_win
+        self._battle = False
+        self._fought = False
+        self._opp_hp = 18
+        self._my_hp = 19
+        self._outcome = 0
+        self._phase = "menu"
+        self._resolve_left = 0
+
+    def step(self, keys: int, frames: int) -> None:
+        if self._battle:
+            self._battle_step(keys)
+            return
+        super().step(keys, frames)
+        if self.pos == self._grass_at and not self._fought:
+            self._battle = True
+            self._fought = True
+
+    def _battle_step(self, keys: int) -> None:
+        if keys == 0:
+            return
+        if self._phase == "menu" and keys & buttons.KEY_A:
+            self._phase = "moves"
+        elif self._phase == "moves" and keys & buttons.KEY_A:
+            if not self._can_win:
+                self._outcome = 2   # terminal loss -> play_battle returns "lost"
+                self._battle = False
+                return
+            self._opp_hp = max(0, self._opp_hp - 6)
+            if self._opp_hp == 0:
+                self._outcome = 1
+                self._battle = False   # won: resume walking
+            self._phase = "resolving"
+            self._resolve_left = self._RESOLVE_PRESSES
+        elif self._phase == "resolving" and keys & buttons.KEY_A:
+            self._resolve_left -= 1
+            if self._resolve_left <= 0 and self._outcome == 0:
+                self._phase = "menu"
+
+    def in_battle(self) -> bool:
+        return self._battle
+
+    def read_bytes(self, addr: int, size: int) -> bytes:
+        from env.game_state import (
+            ACTION_MENU_VALUE,
+            BATTLE_MON_SIZE,
+            GBATTLE_ACTION_MENU_ADDR,
+            GBATTLE_MONS_ADDR,
+            GBATTLE_OUTCOME_ADDR,
+            GBATTLE_TYPE_FLAGS_ADDR,
+            GMOVE_RESULT_FLAGS_ADDR,
+        )
+
+        if addr == GBATTLE_ACTION_MENU_ADDR:
+            return bytes([ACTION_MENU_VALUE if self._phase == "menu" else 0])
+        if addr == GBATTLE_TYPE_FLAGS_ADDR:
+            return _u16b(0 if self._outcome else 1) + b"\x00\x00"
+        if addr == GBATTLE_OUTCOME_ADDR:
+            return bytes([self._outcome])
+        if addr == GMOVE_RESULT_FLAGS_ADDR:
+            return _u16b(0)
+        pbase = GBATTLE_MONS_ADDR
+        obase = GBATTLE_MONS_ADDR + BATTLE_MON_SIZE
+        for base, hp, mx in ((pbase, self._my_hp, 19), (obase, self._opp_hp, 18)):
+            if base <= addr < base + BATTLE_MON_SIZE:
+                buf = bytearray(BATTLE_MON_SIZE)
+                buf[0x00:0x02] = _u16b(1)
+                buf[0x0C:0x0E] = _u16b(1)
+                buf[0x24] = 10
+                buf[0x21], buf[0x22] = 12, 12
+                buf[0x28:0x2A] = _u16b(hp)
+                buf[0x2A] = 5
+                buf[0x2C:0x2E] = _u16b(mx)
+                off = addr - base
+                return bytes(buf[off : off + size])
+        raise AssertionError(f"unexpected read at 0x{addr:08X}")
+
+
+def test_fighter_wins_the_interruption_and_navigation_resumes() -> None:
+    # Battle fires on grass cell (1,0); the Fighter wins, walking resumes to (2,0).
+    # The false-wall bug must NOT trigger: no wall is recorded and it arrives.
+    world = BattleNavWorld(grass_at=(1, 0), start=(0, 0))
+    memory = MapMemory()
+    wallmap = WallMap()
+    result = navigate_to(
+        world, world, wallmap, target=(2, 0), max_steps=50, memory=memory,
+        move_type_fn=lambda mid: 12, predict=lambda obs: 0,
+    )
+    assert result == "arrived"
+    assert world.pos == (2, 0)
+    assert memory.cells_labeled("has_grass") == [((0, 0), (1, 0))]
+    assert not wallmap.is_blocked((0, 0), (1, 0), "right")
+
+
+def test_fighter_loss_aborts_navigation() -> None:
+    world = BattleNavWorld(grass_at=(1, 0), start=(0, 0), can_win=False)
+    result = navigate_to(
+        world, world, WallMap(), target=(2, 0), max_steps=50,
+        move_type_fn=lambda mid: 12, predict=lambda obs: 0,
+    )
+    assert result == "battle_lost"

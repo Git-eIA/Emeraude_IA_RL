@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from emulator import buttons
+from env.battle_player import play_battle
 from env.encounter_detector import EncounterWatcher
 from env.heal_detector import HealWatcher
 from env.local_navigator import WallMap, plan_path, resolve_move
@@ -28,6 +29,25 @@ TURN_RETRIES = 2      # a first press may only turn the character; retry to tell
 SETTLE_TRIES = 4      # re-read snapshot this many times to skip SaveBlock None frames
 
 
+def _handle_battle_interruption(
+    emulator: Any, reader: Any, move_type_fn: Any, predict: Any
+) -> str | None:
+    """If a wild battle is in progress, hand it to the Fighter and report.
+
+    Returns None when there is no battle (or the battle was won) so the caller
+    resumes navigating; returns a terminal outcome when navigation must abort:
+    "battle_interrupted" (no Fighter supplied), "battle_lost", "battle_timeout".
+    """
+    if not reader.in_battle():
+        return None
+    if move_type_fn is None or predict is None:
+        return "battle_interrupted"
+    result = play_battle(emulator, move_type_fn, predict)
+    if result == "won":
+        return None
+    return "battle_lost" if result == "lost" else "battle_timeout"
+
+
 def navigate_to(
     emulator: Any,
     reader: Any,
@@ -35,6 +55,8 @@ def navigate_to(
     target: tuple[int, int],
     max_steps: int = 200,
     memory: MapMemory | None = None,
+    move_type_fn: Any = None,
+    predict: Any = None,
 ) -> str:
     """Walk the player to `target` on its current map.
 
@@ -44,7 +66,8 @@ def navigate_to(
     and a battle starting here tags the cell as has_grass.
     NOTE: with `memory` set, `reader` must expose `party_hp()` and `in_battle()`
     (WorldReader does).
-    Returns 'arrived' | 'unreachable' | 'left_map' | 'timeout'.
+    Returns 'arrived' | 'unreachable' | 'left_map' | 'timeout' |
+    'battle_lost' | 'battle_timeout' | 'battle_interrupted'.
     """
     heal_watcher = HealWatcher()
     enc_watcher = EncounterWatcher()
@@ -58,6 +81,11 @@ def navigate_to(
                 memory.observe(before, WorldEvent(healed=True))
             if enc_watcher.observe(reader.in_battle()):
                 memory.observe(before, WorldEvent(encounter_started=True))
+        interruption = _handle_battle_interruption(
+            emulator, reader, move_type_fn, predict
+        )
+        if interruption is not None:
+            return interruption
         if before.pos == target:
             return "arrived"
         path = plan_path(wallmap, before.map_id, before.pos, target)
