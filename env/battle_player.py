@@ -44,6 +44,36 @@ def play_battle(
     return "battle_timeout"
 
 
+def play_trainer_battle(
+    emulator: Any,
+    move_type_fn: MoveTypeFn,
+    predict: PredictFn,
+    max_turns: int = 128,
+) -> str:
+    """Play an ongoing multi-Pokémon trainer battle to the end.
+
+    Unlike play_battle (wild, single opponent), a trainer sends out the next
+    Pokémon when its active one faints; opp max_hp reads 0 for a tick during
+    send-out, so this stops ONLY on a terminal outcome, never on not in_battle.
+
+    Returns "won" (outcome bit 0x1 set), "lost" (any other terminal outcome),
+    or "battle_timeout" (max_turns reached without a terminal outcome).
+    """
+    reader = BattleReader(emulator.read_bytes)
+    advance_to_menu(emulator, reader, wait_through_faint=True)
+    for _ in range(max_turns):
+        state = reader.battle_state()
+        if state.outcome != 0:
+            return _result(state.outcome)
+        action = predict(observation(state, move_type_fn))
+        select_move(emulator, reader, int(action))
+        advance_to_menu(emulator, reader, wait_through_faint=True)
+    state = reader.battle_state()
+    if state.outcome != 0:
+        return _result(state.outcome)
+    return "battle_timeout"
+
+
 def _result(outcome: int) -> str:
     # NOTE: assumes predict never escapes; a wild grind battle only ends by a
     # terminal outcome, so battle-end with outcome==0 is not reachable here.
