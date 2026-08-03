@@ -103,3 +103,55 @@ def test_advance_failure_aborts_and_surfaces_outcome():
     )
     assert result == "unknown_route"
     assert fn.calls == [("advance", "route_101", None)]
+
+
+def test_milestone_trainer_defaults_false():
+    assert Milestone("route_101", 5).trainer is False
+
+
+def test_campaign_seed_has_route_103_trainer_milestone():
+    route_103 = next(m for m in CAMPAIGN if m.destination == "route_103")
+    assert route_103.trainer is True
+    assert route_103.target_level == 5
+
+
+def test_trainer_milestone_advances_then_battles():
+    reader = FakeReader([8])  # over-leveled -> straight to advance
+    fn = RecordingOrderFn(["arrived", "won"])
+    result = run_campaign(
+        None, reader, None, None,
+        curriculum=(Milestone("route_103", 5, trainer=True),),
+        order_fn=fn,
+    )
+    assert result == "campaign_complete"
+    assert fn.calls == [
+        ("advance", "route_103", None),
+        ("battle_trainer", "route_103", None),
+    ]
+
+
+def test_trainer_battle_failure_aborts_after_advance():
+    reader = FakeReader([8])
+    fn = RecordingOrderFn(["arrived", "lost"])
+    result = run_campaign(
+        None, reader, None, None,
+        curriculum=(Milestone("route_103", 5, trainer=True),),
+        order_fn=fn,
+    )
+    assert result == "lost"
+    assert fn.calls == [
+        ("advance", "route_103", None),
+        ("battle_trainer", "route_103", None),
+    ]
+
+
+def test_non_trainer_milestone_does_not_battle():
+    reader = FakeReader([8])
+    fn = RecordingOrderFn(["arrived"])
+    result = run_campaign(
+        None, reader, None, None,
+        curriculum=(Milestone("route_101", 5),),  # trainer defaults False
+        order_fn=fn,
+    )
+    assert result == "campaign_complete"
+    assert fn.calls == [("advance", "route_101", None)]

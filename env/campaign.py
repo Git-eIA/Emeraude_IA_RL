@@ -20,16 +20,18 @@ from env.orders import Order, execute_order, reached
 @dataclass(frozen=True)
 class Milestone:
     """One curriculum step: reach `destination` once the mean party level is at
-    least `target_level`."""
+    least `target_level`; if `trainer`, fight the trainer there on arrival."""
 
     destination: str    # a name in orders.DESTINATIONS
     target_level: int   # mean, not max — one powerhouse shouldn't unlock advance
+    trainer: bool = False   # end the milestone with a battle_trainer Order
 
 
 # Hand-written curriculum. Like DESTINATIONS, a name means something to the chef
 # before any exploration. Seeded minimally; extend as destinations are verified.
 CAMPAIGN: tuple[Milestone, ...] = (
     Milestone("route_101", 5),
+    Milestone("route_103", 5, trainer=True),
 )
 
 
@@ -51,7 +53,8 @@ def run_campaign(
     outcome, surfaced verbatim so a future Strategist can react.
 
     Returns "campaign_complete" | any non-"leveled_up" outcome from a level_up
-    Order | any non-"arrived" outcome from an advance Order.
+    Order | any non-"arrived" outcome from an advance Order | any non-"won"
+    outcome from a battle_trainer Order.
     """
     for milestone in curriculum:
         if not reached(reader.party_levels(), milestone.target_level):
@@ -70,4 +73,12 @@ def run_campaign(
         )
         if advanced != "arrived":
             return advanced
+        if milestone.trainer:
+            fought = order_fn(
+                Order(milestone.destination, "battle_trainer", "win"),
+                emulator, reader, memory, wallmap,
+                max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
+            )
+            if fought != "won":
+                return fought
     return "campaign_complete"
