@@ -47,14 +47,20 @@ def select_move(emulator: Any, reader: Any, action: int) -> None:
     press(emulator, buttons.KEY_A)
 
 
-def advance_to_menu(emulator: Any, reader: Any) -> None:
+def advance_to_menu(emulator: Any, reader: Any, wait_through_faint: bool = False) -> None:
     """Press A to clear dialogue until back at the action menu or battle end.
 
     `reader` must expose battle_state() -> BattleState and at_action_menu() -> bool.
+    Wild battles (default) also return when in_battle drops. Trainer battles pass
+    wait_through_faint=True: a faint/send-out momentarily reads opp max_hp==0
+    (in_battle False) while the battle continues, so those stop ONLY on a terminal
+    outcome or the next live action menu.
     """
     for _ in range(MAX_ADVANCE_PRESSES):
         state = reader.battle_state()
-        if state.outcome != 0 or not state.in_battle:
+        if state.outcome != 0:
+            return
+        if not wait_through_faint and not state.in_battle:
             return
         if reader.at_action_menu():
             emulator.step(0, SETTLE_FRAMES)
