@@ -144,9 +144,12 @@ hope a battle fires" smoke proves nothing on a no-encounter run. Instead:
 
 **Disposable capture tool** `tools/capture_route101_in_battle.py` (à la
 `capture_lab_entry.py`): loads `states/post_starter.state`, walks the party into
-route_101 grass pressing the d-pad until `reader.in_battle()` flips true, dumps
-`states/route101_in_battle.state`. Bounded step budget; documents that this is a
-one-shot artifact producer, gitignored like the other states.
+route_101 grass until `reader.in_battle()` flips true, dumps
+`states/route101_in_battle.state`. It must **cycle the four d-pad directions**
+with the `RELEASE_FRAMES` debounce (reuse the grind `_walk_until_encounter`
+pattern), not single-press one direction — a fixed heading can hit a wall or
+leave the grass patch before an encounter's stochastic roll fires. Bounded step
+budget with retry; one-shot artifact producer, gitignored like the other states.
 
 **Gated ROM smoke** `tests/test_battle_proof_survey_rom.py`: double-skip on
 `POKEMON_EMERALD_ROM` **or** missing `states/route101_in_battle.state`. Loads
@@ -185,6 +188,21 @@ SB3/torch imported inside the test body (not at collect), same pattern as
 - Create: `tools/capture_route101_in_battle.py` (disposable artifact producer)
 - Create: `tests/test_battle_proof_survey_rom.py` (gated deterministic smoke)
 - Modify: `tests/test_map_explorer.py`, `tests/test_world_surveyor.py`
+
+## Assumptions & risks
+
+- **Map id stays stable during a wild battle.** `map_map`'s top-of-loop
+  `if here.map_id != target_map: return "left_map"` runs on the in-battle frame
+  before the interruption handler. Wild battles keep the overworld map id, so
+  this does not falsely short-circuit to `left_map`. A battle *loss* white-out
+  changes the map, but the handler returns `battle_lost` in the same iteration
+  it starts (position/map still route_101 at the top), before any warp. The live
+  smoke exercises exactly this frame, so a wrong assumption fails loudly.
+- **`snapshot_settled` returns a valid frozen snapshot during battle** (relied on
+  by Brique 1's `navigate_to`; reused here unchanged).
+- **`states/post_starter.state` sits on grass-reachable route_101.** If the
+  capture tool cannot reach grass within its budget it exits non-zero and no
+  artifact is produced → the smoke stays skipped rather than green-and-vacuous.
 
 ## Outcome contract
 
