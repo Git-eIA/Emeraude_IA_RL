@@ -338,8 +338,10 @@ def test_fighter_wins_the_interruption_and_navigation_resumes() -> None:
 
 def test_fighter_loss_aborts_navigation() -> None:
     world = BattleNavWorld(grass_at=(1, 0), start=(0, 0), can_win=False)
+    wallmap = WallMap()
     result = navigate_to(
-        world, world, WallMap(), target=(2, 0), max_steps=50,
+        world, world, wallmap, target=(2, 0), max_steps=50,
         move_type_fn=lambda mid: 12, predict=lambda obs: 0,
     )
     assert result == "battle_lost"
+    assert not wallmap.is_blocked((0, 0), (1, 0), "right")  # no false wall on abort

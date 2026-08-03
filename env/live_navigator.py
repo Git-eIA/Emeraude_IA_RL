@@ -64,8 +64,9 @@ def navigate_to(
     (from_cell + direction + landed-on map), a heal observed en route
     (party HP refilled to full) tags the current place as a healing spot,
     and a battle starting here tags the cell as has_grass.
-    NOTE: with `memory` set, `reader` must expose `party_hp()` and `in_battle()`
-    (WorldReader does).
+    NOTE: `reader` must always expose `in_battle()` (the battle interruption is
+    checked every step); `party_hp()` is only needed when `memory` is set.
+    Both are on WorldReader.
     Returns 'arrived' | 'unreachable' | 'left_map' | 'timeout' |
     'battle_lost' | 'battle_timeout' | 'battle_interrupted'.
     """
@@ -81,6 +82,9 @@ def navigate_to(
                 memory.observe(before, WorldEvent(healed=True))
             if enc_watcher.observe(reader.in_battle()):
                 memory.observe(before, WorldEvent(encounter_started=True))
+        # Fight before checking arrival: a won battle returns None and falls
+        # through to the target check, so arriving-on-grass still reports
+        # "arrived"; only an unwinnable/no-Fighter battle aborts here.
         interruption = _handle_battle_interruption(
             emulator, reader, move_type_fn, predict
         )
