@@ -33,9 +33,11 @@ class RecordingOrderFn:
     def __init__(self, outcomes: list[str]) -> None:
         self._outcomes = list(outcomes)
         self.calls: list[tuple[str, str, int | None]] = []
+        self.kwargs: list[dict] = []
 
     def __call__(self, order: Order, emulator, reader, memory, wallmap, **kwargs):
         self.calls.append((order.mode, order.destination, kwargs.get("target_level")))
+        self.kwargs.append(kwargs)
         return self._outcomes.pop(0)
 
 
@@ -102,4 +104,72 @@ def test_advance_failure_aborts_and_surfaces_outcome():
         order_fn=fn,
     )
     assert result == "unknown_route"
+    assert fn.calls == [("advance", "route_101", None)]
+
+
+def test_milestone_trainer_defaults_false():
+    assert Milestone("route_101", 5).trainer is False
+
+
+def test_campaign_seed_has_route_103_trainer_milestone():
+    route_103 = next(m for m in CAMPAIGN if m.destination == "route_103")
+    assert route_103.trainer is True
+    assert route_103.target_level == 5
+
+
+def test_trainer_milestone_advances_then_battles():
+    reader = FakeReader([8])  # over-leveled -> straight to advance
+    fn = RecordingOrderFn(["arrived", "won"])
+    result = run_campaign(
+        None, reader, None, None,
+        curriculum=(Milestone("route_103", 5, trainer=True),),
+        order_fn=fn,
+    )
+    assert result == "campaign_complete"
+    assert fn.calls == [
+        ("advance", "route_103", None),
+        ("battle_trainer", "route_103", None),
+    ]
+
+
+def test_trainer_battle_failure_aborts_after_advance():
+    reader = FakeReader([8])
+    fn = RecordingOrderFn(["arrived", "lost"])
+    result = run_campaign(
+        None, reader, None, None,
+        curriculum=(Milestone("route_103", 5, trainer=True),),
+        order_fn=fn,
+    )
+    assert result == "lost"
+    assert fn.calls == [
+        ("advance", "route_103", None),
+        ("battle_trainer", "route_103", None),
+    ]
+
+
+def test_advance_threads_the_fighter():
+    # advance must cross grass toward route_103; without the Fighter, navigate_to
+    # aborts on a wild battle. The advance Order carries move_type_fn/predict.
+    reader = FakeReader([8])
+    fn = RecordingOrderFn(["arrived"])
+    move_type_fn, predict = object(), object()
+    run_campaign(
+        None, reader, None, None,
+        curriculum=(Milestone("route_101", 5),),
+        order_fn=fn, move_type_fn=move_type_fn, predict=predict,
+    )
+    advance_kwargs = fn.kwargs[0]
+    assert advance_kwargs["move_type_fn"] is move_type_fn
+    assert advance_kwargs["predict"] is predict
+
+
+def test_non_trainer_milestone_does_not_battle():
+    reader = FakeReader([8])
+    fn = RecordingOrderFn(["arrived"])
+    result = run_campaign(
+        None, reader, None, None,
+        curriculum=(Milestone("route_101", 5),),  # trainer defaults False
+        order_fn=fn,
+    )
+    assert result == "campaign_complete"
     assert fn.calls == [("advance", "route_101", None)]

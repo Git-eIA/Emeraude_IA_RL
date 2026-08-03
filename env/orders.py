@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from emulator import buttons
-from env.battle_player import play_battle
+from env.battle_player import play_battle, play_trainer_battle
 from env.encounter_detector import EncounterWatcher
 from env.heal_detector import party_is_full, party_needs_heal
 from env.map_traveler import travel_to
@@ -38,6 +38,13 @@ class Order:
 DESTINATIONS: dict[str, tuple[tuple[int, int], tuple[int, int]]] = {
     "littleroot": ((0, 9), (3, 10)),   # Bourg-en-Vol, truck landing cell
     "route_101": ((0, 16), (5, 12)),   # Route 101 south entrance (cell unverified)
+    "route_103": ((0, 18), (9, 5)),    # Route 103 rival approach (map+cell unverified)
+}
+
+# Engage heading per trainer destination: the d-pad direction that walks into the
+# trainer to trigger the battle. Unverified until the capture tool discovers it.
+TRAINER_APPROACH: dict[str, int] = {
+    "route_103": buttons.KEY_UP,   # walk north into the rival (unverified)
 }
 
 HEAL_PRESS_A_FRAMES = 6
@@ -75,6 +82,8 @@ def execute_order(
     "healed" | "heal_failed" | "encounter_started" |
     "no_encounter" | a play_battle outcome ("won" | "lost" | "battle_timeout").
     level_up adds: "leveled_up" | "grind_exhausted".
+    battle_trainer adds: "no_trainer" (no battle triggered) | a
+    play_trainer_battle outcome ("won" | "lost" | "battle_timeout").
     """
     if order.mode == "heal":
         return _execute_heal(emulator, reader, memory, wallmap, max_hops=max_hops)
@@ -89,6 +98,11 @@ def execute_order(
             target_level=target_level, heal_threshold=heal_threshold,
             max_cycles=max_cycles, max_hops=max_hops,
             move_type_fn=move_type_fn, predict=predict,
+        )
+    if order.mode == "battle_trainer":
+        return _execute_battle_trainer(
+            emulator, reader, memory, wallmap, order.destination,
+            max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
         )
     dest = DESTINATIONS.get(order.destination)
     if dest is None:
@@ -227,3 +241,57 @@ def _execute_level_up(
         else:
             return result
     return "leveled_up" if reached(reader.party_levels(), target_level) else "grind_exhausted"
+
+
+def _execute_battle_trainer(
+    emulator: Any,
+    reader: Any,
+    memory: Any,
+    wallmap: Any,
+    destination: str,
+    max_hops: int = 20,
+    move_type_fn: Any = None,
+    predict: Any = None,
+) -> str:
+    """Travel to a trainer's approach cell, engage, then—if a Fighter is
+    supplied—play the trainer battle to an outcome.
+
+    ROM smoke deferred: a mode-level smoke needs a pre-trigger overworld state
+    near the trainer plus a surveyed route so travel_to can path there. A
+    walk-until-in_battle capture tool produces an already-in-battle state, on
+    which travel_to spins to timeout before the battle. Pure tests cover the
+    sequencing; play_trainer_battle on a real rival is covered by Brique 3
+    part 1's gated smoke.
+
+    Returns "unknown_destination" | a travel_to pass-through | "no_trainer" |
+    "encounter_started" (no Fighter) | a play_trainer_battle outcome
+    ("won" | "lost" | "battle_timeout").
+    """
+    dest = DESTINATIONS.get(destination)
+    if dest is None:
+        return "unknown_destination"
+    goal_map, goal_cell = dest
+    outcome = travel_to(
+        emulator, reader, memory, wallmap, goal_map, goal_cell,
+        max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
+    )
+    if outcome != "arrived":
+        return outcome               # pass-through: unknown_route/unreachable/lost/timeout
+    heading = TRAINER_APPROACH.get(destination, buttons.KEY_UP)
+    engaged = _walk_until_trainer(emulator, reader, heading)
+    if engaged != "engaged":
+        return engaged               # no_trainer
+    if move_type_fn is None or predict is None:
+        return "encounter_started"   # no Fighter wired: stop at the trigger
+    return play_trainer_battle(emulator, move_type_fn, predict)
+
+
+def _walk_until_trainer(emulator: Any, reader: Any, heading: int) -> str:
+    """Press a fixed approach heading in place until the battle flag rises."""
+    watcher = EncounterWatcher()
+    for _ in range(GRIND_MAX_STEPS):
+        if watcher.observe(reader.in_battle()):
+            return "engaged"
+        emulator.step(heading, GRIND_STEP_FRAMES)
+        emulator.step(0, GRIND_RELEASE_FRAMES)   # release between presses (GBA debounce)
+    return "engaged" if reader.in_battle() else "no_trainer"
