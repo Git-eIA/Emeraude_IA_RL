@@ -135,7 +135,8 @@ class _ScriptedTrainerBattle:
         my_dmg: int,
         foe_dmg: int,
     ) -> None:
-        self._opp_team = list(opp_team)  # mutable copy; active mon = index 0
+        self._opp_team = list(opp_team)  # mutable copy; current HP per mon
+        self._opp_max_hp = list(opp_team)  # immutable snapshot; initial HP per mon
         self._active_idx = 0
         self._my_hp = my_hp
         self._my_dmg = my_dmg
@@ -192,7 +193,8 @@ class _ScriptedTrainerBattle:
 
     def _active_opp_max_hp(self) -> int:
         # During send-out the active slot reports max_hp == 0, making in_battle False.
-        return 0 if self._phase == "sendout" else self._opp_team[0]  # use first slot as max
+        # Otherwise return the ACTIVE mon's initial HP (not mon[0]'s, which may be 0).
+        return 0 if self._phase == "sendout" else self._opp_max_hp[self._active_idx]
 
     def _mon(self, *, hp: int, max_hp: int) -> bytearray:
         buf = bytearray(BATTLE_MON_SIZE)
