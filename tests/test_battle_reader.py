@@ -115,3 +115,12 @@ def test_super_effective_flag_detected() -> None:
 def test_outcome_nonzero_when_battle_ends() -> None:
     state = _make_reader(outcome=1).battle_state()
     assert state.outcome == 1
+
+
+def test_not_in_battle_when_outcome_is_terminal_despite_residual_flags() -> None:
+    # A won battle leaves gBattleTypeFlags and opp max_hp non-zero in EWRAM
+    # (e.g. a savestate captured just after the forced starter battle). A
+    # terminal gBattleOutcome means the battle is over, so in_battle is False.
+    state = _make_reader(in_battle=True, outcome=1).battle_state()
+    assert state.opp_max_hp > 0  # residual battle RAM still present
+    assert state.in_battle is False
