@@ -154,28 +154,37 @@ budget with retry; one-shot artifact producer, gitignored like the other states.
 **Gated ROM smoke** `tests/test_battle_proof_survey_rom.py`: double-skip on
 `POKEMON_EMERALD_ROM` **or** missing `states/route101_in_battle.state`. Loads
 that state (first `map_map` iteration always sees an in-progress battle), wraps
-the real Fighter checkpoint `ppo_fighter_final.zip` into `predict`, runs
+the real Fighter checkpoint `checkpoints/fighter/ppo_fighter_final.zip` into
+`predict` (via `make_move_type_fn` from `agent.train_fighter`), runs
 `map_map` on route_101, and asserts:
 - the outcome is **not** a battle outcome (`result not in BATTLE_OUTCOMES`) — the
   Fighter won and the survey resumed rather than aborting;
 - the battle was actually resolved (`not reader.in_battle()` after the call), so
-  the assertion above isn't vacuous on a state that never re-entered combat;
-- grass was learned at the starting cell
-  (`memory.cells_labeled("has_grass")` is non-empty), proving the loop reached
-  the recording block on the in-battle frame.
+  the assertion above isn't vacuous on a state that never re-entered combat.
 
-These are stable observables; asserting "no wall at the pre-battle cell" is
-avoided because the probed frontier cell is emulator-dependent.
+Grass-learning is **not** asserted here: `EncounterWatcher` starts optimistic
+(`_was_in_battle=True`), so a savestate loaded *mid-battle* never yields the
+False→True front the watcher needs — the encounter "started" before observation
+began. Learning grass on encounter is covered instead by the pure unit test that
+walks *onto* grass (a real False→True transition). Asserting "no wall at the
+pre-battle cell" is also avoided because the probed frontier cell is
+emulator-dependent.
 
 SB3/torch imported inside the test body (not at collect), same pattern as
 `test_battle_player_rom.py`.
 
 ## Unit tests (no ROM)
 
-- `test_map_explorer.py`: extend the fake world to fire an in-battle frame; a
-  Fighter-less `map_map` returns `"battle_interrupted"` (no false wall
-  recorded); a `map_map` with a winning fake Fighter resumes and reaches
-  `"complete"`; a losing fake Fighter returns `"battle_lost"`.
+- `test_map_explorer.py`:
+  - Update the existing `test_map_map_learns_grass_cell_when_a_battle_fires`:
+    walking *onto* grass (real False→True) now learns grass **and** — with no
+    Fighter — returns `"battle_interrupted"` on that same frame (recording block
+    runs before the interruption handler). Assert both.
+  - Add a `BattleExploreWorld` (mirrors `BattleNavWorld`) pre-armed in a wild
+    battle at the start cell: a winning fake Fighter resumes and reaches
+    `"complete"` with no false wall; a losing fake Fighter returns
+    `"battle_lost"` with no false wall. Grass is **not** asserted here
+    (pre-armed battle = no False→True front, same as the ROM smoke).
 - `test_world_surveyor.py`: a `map_map`/`travel_to` battle outcome aborts the
   sweep immediately with the leg recorded in `failed`; the Fighter deps reach
   both calls; the no-battle path is unchanged.
