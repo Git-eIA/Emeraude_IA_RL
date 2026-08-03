@@ -3,8 +3,51 @@ from __future__ import annotations
 
 import numpy as np
 
-from env.battle_turn import OBS_SIZE, observation, select_move
+from env.battle_turn import OBS_SIZE, advance_to_menu, observation, select_move
 from env.game_state import BattleState, MoveInfo
+
+
+def _bs(in_battle: bool, outcome: int) -> BattleState:
+    moves = (MoveInfo(1, 10), MoveInfo(0, 0), MoveInfo(0, 0), MoveInfo(0, 0))
+    return BattleState(
+        in_battle=in_battle,
+        my_hp=10, my_max_hp=20, my_level=5, my_types=(12, 12), my_moves=moves,
+        opp_hp=9, opp_max_hp=18, opp_level=5, opp_types=(10, 10), opp_species=4,
+        outcome=outcome, last_move_super_effective=False,
+    )
+
+
+class _FaintEmulator:
+    """Models a send-out: in_battle stays False (opp max_hp 0) for two ticks,
+    then the live action menu appears. Serves as both emulator and reader.
+    """
+
+    def __init__(self) -> None:
+        self.presses = 0
+        self._ticks = 0
+
+    def step(self, keys: int, frames: int) -> None:
+        if keys != 0:
+            self.presses += 1
+            self._ticks += 1
+
+    def at_action_menu(self) -> bool:
+        return self._ticks >= 2
+
+    def battle_state(self) -> BattleState:
+        return _bs(in_battle=self._ticks >= 2, outcome=0)
+
+
+def test_advance_to_menu_default_stops_on_not_in_battle() -> None:
+    emu = _FaintEmulator()
+    advance_to_menu(emu, emu)  # default wait_through_faint=False
+    assert emu.presses == 0  # returns immediately on not in_battle (wild behaviour)
+
+
+def test_advance_to_menu_waits_through_faint() -> None:
+    emu = _FaintEmulator()
+    advance_to_menu(emu, emu, wait_through_faint=True)
+    assert emu.presses == 2  # presses A through send-out until the live menu
 
 
 def _state() -> BattleState:
