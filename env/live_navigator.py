@@ -29,14 +29,15 @@ TURN_RETRIES = 2      # a first press may only turn the character; retry to tell
 SETTLE_TRIES = 4      # re-read snapshot this many times to skip SaveBlock None frames
 
 
-def _handle_battle_interruption(
+def handle_battle_interruption(
     emulator: Any, reader: Any, move_type_fn: Any, predict: Any
 ) -> str | None:
     """If a wild battle is in progress, hand it to the Fighter and report.
 
-    Returns None when there is no battle (or the battle was won) so the caller
-    resumes navigating; returns a terminal outcome when navigation must abort:
-    "battle_interrupted" (no Fighter supplied), "battle_lost", "battle_timeout".
+    Public (imported by map_explorer as well as used here). Returns None when
+    there is no battle (or the battle was won) so the caller resumes; returns a
+    terminal outcome when the caller must abort: "battle_interrupted" (no Fighter
+    supplied), "battle_lost", "battle_timeout".
     """
     if not reader.in_battle():
         return None
@@ -87,7 +88,7 @@ def navigate_to(
         # "arrived"; only an unwinnable/no-Fighter battle aborts here.
         # Position is frozen during combat in Emerald, so `before` stays
         # accurate for the target check and plan_path below without a re-read.
-        interruption = _handle_battle_interruption(
+        interruption = handle_battle_interruption(
             emulator, reader, move_type_fn, predict
         )
         if interruption is not None:

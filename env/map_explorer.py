@@ -15,7 +15,12 @@ from __future__ import annotations
 from collections import deque
 from typing import Any
 
-from env.live_navigator import RELEASE_FRAMES, probe_step, snapshot_settled
+from env.live_navigator import (
+    RELEASE_FRAMES,
+    handle_battle_interruption,
+    probe_step,
+    snapshot_settled,
+)
 from env.local_navigator import DELTAS, DIRECTIONS, OPPOSITE, WallMap
 from env.encounter_detector import EncounterWatcher
 from env.map_memory import MapMemory, WorldEvent
@@ -28,14 +33,19 @@ def map_map(
     wallmap: WallMap,
     target_map: tuple[int, int],
     max_steps: int = 2000,
+    move_type_fn: Any = None,
+    predict: Any = None,
 ) -> str:
     """Survey `target_map` by frontier search: learn every wall and record
     every door as a portal. Known-walkable repositioning only.
 
     Returns:
-      "complete"          — frontier exhausted; the map is fully known
-      "budget_exhausted"  — hit max_steps before the frontier emptied
-      "left_map"          — crossed a non-reversible door and could not return
+      "complete"            — frontier exhausted; the map is fully known
+      "budget_exhausted"    — hit max_steps before the frontier emptied
+      "left_map"            — crossed a non-reversible door and could not return
+      "battle_interrupted"  — wild battle fired, no Fighter supplied
+      "battle_lost"         — wild battle fired, Fighter lost
+      "battle_timeout"      — wild battle fired, Fighter timed out
     """
     reached: set[tuple[int, int]] = set()
     tried: set[tuple[tuple[int, int], str]] = set()
@@ -51,6 +61,9 @@ def map_map(
         reached.add(here.pos)
         if enc_watcher.observe(reader.in_battle()):
             memory.observe(here, WorldEvent(encounter_started=True))
+        battle = handle_battle_interruption(emulator, reader, move_type_fn, predict)
+        if battle is not None:
+            return battle  # "battle_lost" | "battle_timeout" | "battle_interrupted"
 
         plan = _nearest_frontier(reached, tried, wallmap, target_map, here.pos)
         if plan is None:

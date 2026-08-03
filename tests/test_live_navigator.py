@@ -345,3 +345,14 @@ def test_fighter_loss_aborts_navigation() -> None:
     )
     assert result == "battle_lost"
     assert not wallmap.is_blocked((0, 0), (1, 0), "right")  # no false wall on abort
+
+
+def test_handle_battle_interruption_is_public_and_quiet_off_battle() -> None:
+    from env.live_navigator import handle_battle_interruption
+
+    class _NoBattle:
+        def in_battle(self) -> bool:
+            return False
+
+    # No battle -> None, and no Fighter needed to reach that branch.
+    assert handle_battle_interruption(None, _NoBattle(), None, None) is None
