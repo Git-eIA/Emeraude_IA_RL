@@ -69,7 +69,8 @@ def run_campaign(
                 return leveled
         advanced = order_fn(
             Order(milestone.destination, "advance", "win"),
-            emulator, reader, memory, wallmap, max_hops=max_hops,
+            emulator, reader, memory, wallmap,
+            max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
         )
         if advanced != "arrived":
             return advanced

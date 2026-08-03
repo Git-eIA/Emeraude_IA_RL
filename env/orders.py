@@ -82,7 +82,8 @@ def execute_order(
     "healed" | "heal_failed" | "encounter_started" |
     "no_encounter" | a play_battle outcome ("won" | "lost" | "battle_timeout").
     level_up adds: "leveled_up" | "grind_exhausted".
-    battle_trainer adds: "no_trainer" (Fighter wired, no battle triggered).
+    battle_trainer adds: "no_trainer" (no battle triggered) | a
+    play_trainer_battle outcome ("won" | "lost" | "battle_timeout").
     """
     if order.mode == "heal":
         return _execute_heal(emulator, reader, memory, wallmap, max_hops=max_hops)

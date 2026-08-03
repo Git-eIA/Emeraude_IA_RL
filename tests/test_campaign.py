@@ -33,9 +33,11 @@ class RecordingOrderFn:
     def __init__(self, outcomes: list[str]) -> None:
         self._outcomes = list(outcomes)
         self.calls: list[tuple[str, str, int | None]] = []
+        self.kwargs: list[dict] = []
 
     def __call__(self, order: Order, emulator, reader, memory, wallmap, **kwargs):
         self.calls.append((order.mode, order.destination, kwargs.get("target_level")))
+        self.kwargs.append(kwargs)
         return self._outcomes.pop(0)
 
 
@@ -143,6 +145,22 @@ def test_trainer_battle_failure_aborts_after_advance():
         ("advance", "route_103", None),
         ("battle_trainer", "route_103", None),
     ]
+
+
+def test_advance_threads_the_fighter():
+    # advance must cross grass toward route_103; without the Fighter, navigate_to
+    # aborts on a wild battle. The advance Order carries move_type_fn/predict.
+    reader = FakeReader([8])
+    fn = RecordingOrderFn(["arrived"])
+    move_type_fn, predict = object(), object()
+    run_campaign(
+        None, reader, None, None,
+        curriculum=(Milestone("route_101", 5),),
+        order_fn=fn, move_type_fn=move_type_fn, predict=predict,
+    )
+    advance_kwargs = fn.kwargs[0]
+    assert advance_kwargs["move_type_fn"] is move_type_fn
+    assert advance_kwargs["predict"] is predict
 
 
 def test_non_trainer_milestone_does_not_battle():
