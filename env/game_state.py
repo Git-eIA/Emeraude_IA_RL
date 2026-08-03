@@ -205,8 +205,14 @@ class BattleReader:
         flags = self._u16(GBATTLE_TYPE_FLAGS_ADDR)
         my = self._read_mon(GBATTLE_MONS_ADDR)
         opp = self._read_mon(GBATTLE_MONS_ADDR + BATTLE_MON_SIZE)
-        # Cross-check: in battle iff flags set AND opponent has a real max HP.
-        in_battle = flags != 0 and opp["max_hp"] > 0
+        outcome = self._u8(GBATTLE_OUTCOME_ADDR)
+        # In battle iff flags set AND opponent has a real max HP AND the battle
+        # has no terminal outcome yet. gBattleTypeFlags/gBattleMons are NOT
+        # cleared when a battle ends, so a savestate captured just after one
+        # (e.g. the forced starter battle) keeps them set — gating on
+        # gBattleOutcome == 0 rejects that residual state. Every consumer already
+        # treats outcome != 0 as "battle over", so this only tightens in_battle.
+        in_battle = flags != 0 and opp["max_hp"] > 0 and outcome == 0
         move_result = self._u16(GMOVE_RESULT_FLAGS_ADDR)
         return BattleState(
             in_battle=in_battle,
@@ -220,7 +226,7 @@ class BattleReader:
             opp_level=opp["level"],
             opp_types=opp["types"],
             opp_species=opp["species"],
-            outcome=self._u8(GBATTLE_OUTCOME_ADDR),
+            outcome=outcome,
             last_move_super_effective=bool(move_result & _MOVE_RESULT_SUPER_EFFECTIVE),
         )
 
