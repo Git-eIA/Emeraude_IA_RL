@@ -187,16 +187,26 @@ from env.milestones import ROUTE_103, EnvContext, MilestoneTracker, starter_mile
   today, so add `self._battle_reader = BattleReader(emulator.read_bytes)`
   alongside it (mirrors how WorldReader holds both).
 - Track `self._rival_beaten: bool = False` (reset to False in `reset()`).
-- In `step`, **after `emulator.step(...)` and before reading `player_state()`**,
-  if a battle is up and the Fighter is wired, resolve it:
+- In `step`, place the hook **immediately after `emulator.step(...)`, BEFORE the
+  frame append** (`self._frames.append(...)`). Ordering matters: resolving the
+  battle first means the frame appended for this step, and the `player_state()`
+  read that follows, reflect the *post-battle* overworld — not a stale pre-battle
+  frame. The battle is out-of-band for the Explorer's perception (the Fighter is
+  a separate brain); the Explorer just sees "walked into a fight, came out the
+  other side" in one step. The `pre` map read happens *inside* the hook, before
+  `play_trainer_battle`, so it captures route_103 while the battle is still up.
 
 ```python
-# battle hook (only when a Fighter is injected)
+# battle hook: resolve any in-progress battle before the frame/state read.
+# Placed right after emulator.step(keys, FRAMES_PER_ACTION), before the
+# self._frames.append(...) line.
 if self._move_type_fn is not None and self._predict is not None:
     bs = self._battle_reader.battle_state()
     if bs.in_battle:
-        # G3: capture the map at battle START (post-battle RAM can be
-        # incoherent for one step during the warp back).
+        # G3: read the map at battle START. Safe here because battles never
+        # warp the player — the map stays route_103 for the whole fight. (The
+        # transient-garbage RAM trap, town_state=40 / clock_set False, only
+        # happens during map WARPS, not battles.)
         pre = self._reader.player_state()
         on_route103 = pre is not None and (pre.map_group, pre.map_num) == ROUTE_103
         if self._battle_reader.is_trainer_battle():
@@ -218,15 +228,24 @@ milestone_reward, terminated = self._milestones.update(
 `beat_rival` fires only when the agent is standing on route_103 (position guard)
 **and** `_rival_beaten` is latched by a won trainer battle there. No flag guess.
 
+The `_rival_beaten` latch already encodes "won a trainer battle *on route_103*"
+(via the `pre` read), so the milestone lambda's `(map)==ROUTE_103` guard is
+technically redundant. It is kept **intentionally** as a credit-assignment
+guard: it makes the +100 land on a step where the agent is physically on
+route_103, and if the post-battle map read is momentarily off, the latch is
+sticky so `beat_rival` still fires on the next clean route_103 read (before the
+episode ends). Belt-and-suspenders, not an oversight.
+
 ## Detection of `beat_rival` (why this is sound)
 
 - The route_103 rival is the *only* trainer reachable in Phase 1's north
   corridor, so "won a trainer battle while on route_103" uniquely identifies it.
 - `is_trainer_battle()` (0x0008) rejects the many wild battles crossing grass —
   those go through `play_battle` and never touch `_rival_beaten`.
-- G3: the on-route_103 check reads the map *before* `play_trainer_battle` runs,
-  avoiding the post-battle warp RAM-incoherence window (a documented trap:
-  town_state=40 / clock_set=False fugaces during warps).
+- G3: the on-route_103 check reads the map *before* `play_trainer_battle` runs.
+  This is safe because battles never warp the player (the map stays route_103
+  throughout the fight); the documented RAM-incoherence trap — town_state=40 /
+  clock_set False fugaces — is a *warp* phenomenon, not a battle one.
 - `beat_rival` is terminal → the episode ends on the win, which is exactly the
   Phase-1 success signal for eval.
 
@@ -241,12 +260,21 @@ milestone_reward, terminated = self._milestones.update(
 - Build `PokemonEmeraldEnv([state], milestones=route103_milestones(),
   move_type_fn=..., predict=...)` wrapping the real Fighter.
 - Assert precondition `is_trainer_battle()` True and `in_battle` True.
-- Step once; assert `_rival_beaten` becomes True and — if the agent is on
-  route_103 — `beat_rival` is in `tracker.fired` and the episode terminates.
+- Step once; assert the battle was **dispatched and resolved** — `in_battle` is
+  False afterward (proves `play_trainer_battle` ran, not `play_battle`, which
+  would mis-handle send-outs). This is the load-bearing assertion regardless of
+  where the state was captured.
+- **Conditional on the state being on route_103** (read the map at load): assert
+  `_rival_beaten` is True and `beat_rival` is in `tracker.fired` with the episode
+  terminated. If the captured state is a trainer battle *elsewhere* (the
+  route_103 capture is still deferred — route_103 is currently unreachable, see
+  the geometry finding), skip this half rather than asserting a latch that
+  correctly did not fire.
 
-This proves the trainer dispatch + env_condition wiring end-to-end on a real
-ROM. It is load-bearing the moment `states/trainer_battle.state` exists (still
-the deferred human-in-the-loop capture — see route_103 geometry finding).
+This proves the trainer-vs-wild dispatch + (on route_103) the env_condition
+wiring end-to-end on a real ROM. The dispatch half is load-bearing the moment
+any `states/trainer_battle.state` exists; the latch half becomes load-bearing
+once that state is captured on route_103.
 
 Pure tests (no ROM) cover the machinery fully:
 - `test_milestones.py`: `env_condition` gates a fire (position true + ctx false
