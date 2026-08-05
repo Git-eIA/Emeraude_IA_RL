@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from env.game_state import BattleReader, EmeraldReader, ReadFn
+from env.map_grid_reader import MapGridReader
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class WorldReader:
     def __init__(self, read: ReadFn) -> None:
         self._reader = EmeraldReader(read)
         self._battle = BattleReader(read)
+        self._grid = MapGridReader(read)
 
     def snapshot(self) -> WorldSnapshot | None:
         """Snapshot the world, or None while the save blocks relocate."""
@@ -49,7 +51,8 @@ class WorldReader:
         return self._battle.battle_state().in_battle
 
     def _tile_behavior(self) -> int | None:
-        # TODO(probe): read the metatile-behavior byte of the tile the player
-        # stands on (tall grass, water, wall, door, ...). Its RAM address on
-        # BPEF is not yet known; returns None until a probe session finds it.
-        return None
+        """Raw metatile behavior of the tile the player stands on, or None."""
+        ps = self._reader.player_state()
+        if ps is None:
+            return None
+        return self._grid.tile_behavior_at(ps.x, ps.y)

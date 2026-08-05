@@ -45,10 +45,54 @@ def test_snapshot_reads_map_id_and_position() -> None:
     assert snap.pos == (3, 7)
 
 
-def test_tile_behavior_is_none_until_probed() -> None:
-    snap = _reader(FakeEmulator()).snapshot()
+def test_snapshot_tile_behavior_reads_current_tile() -> None:
+    from env.map_grid_reader import (
+        BACKUP_MAP_LAYOUT_ADDR,
+        MAP_HEADER_ADDR,
+        MB_TALL_GRASS,
+        _BML_HEIGHT,
+        _BML_MAP_PTR,
+        _BML_WIDTH,
+    )
+
+    emu = FakeEmulator()
+    emu.map_group, emu.map_num = 0, 16
+    emu.x, emu.y = 3, 7
+    base = emu.read_bytes
+
+    # Overlay a minimal coherent map on top of FakeEmulator's reads.
+    map_buf = 0x02030000
+    layout = 0x0203A000
+    primary_ts = 0x0203B000
+    primary_attr = 0x08300000
+    pw, ph = 25, 34  # -> logical 10x20 (contains x=3,y=7)
+    overlay: dict[tuple[int, int], bytes] = {}
+
+    def _u32(addr: int, value: int) -> None:
+        overlay[(addr, 4)] = value.to_bytes(4, "little")
+
+    def _u16(addr: int, value: int) -> None:
+        overlay[(addr, 2)] = value.to_bytes(2, "little")
+
+    _u32(BACKUP_MAP_LAYOUT_ADDR + _BML_WIDTH, pw)
+    _u32(BACKUP_MAP_LAYOUT_ADDR + _BML_HEIGHT, ph)
+    _u32(BACKUP_MAP_LAYOUT_ADDR + _BML_MAP_PTR, map_buf)
+    _u32(MAP_HEADER_ADDR + 0x00, layout)
+    _u32(layout + 0x10, primary_ts)
+    _u32(primary_ts + 0x0C, primary_attr)
+    # player tile (3,7) -> padded (10,14); metatile 5 -> tall grass
+    px, py = 3 + 7, 7 + 7
+    _u16(map_buf + 2 * (py * pw + px), 0x0005)
+    _u16(primary_attr + 2 * 0x0005, MB_TALL_GRASS)
+
+    def read(addr: int, size: int) -> bytes:
+        if (addr, size) in overlay:
+            return overlay[(addr, size)]
+        return base(addr, size)
+
+    snap = WorldReader(read).snapshot()
     assert snap is not None
-    assert snap.tile_behavior is None
+    assert snap.tile_behavior == MB_TALL_GRASS
 
 
 def test_snapshot_is_none_while_save_blocks_relocate() -> None:
