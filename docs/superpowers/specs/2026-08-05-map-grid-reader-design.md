@@ -71,17 +71,31 @@ class MapGridReader:
     def grid(self) -> list[list[TileKind]] | None          # dump complet classifié
 ```
 
+`dimensions()` et `grid()` sont en **tuiles-carte jouables, bordure de padding
+retirée** (le même repère que les coords joueur (x,y)). Le buffer RAM est paddé
+d'une bordure ; l'indexation interne l'ajoute, l'API l'ôte.
+
 `grid()` est fourni pour le tool jetable + les tests + le futur decode-once. Il
 n'est **pas** destiné à la boucle chaude (une carte peut être grande — 100×100 =
 10k classifications) ; la nav live utilisera `classify_at` ponctuel. À documenter.
+`grid()` rend un rectangle plein (corruption → `WALL`, jamais de cellule `None`).
 
-### Décodage hybride (par tuile)
+### Deux logiques distinctes (à ne PAS confondre)
 
-1. lire l'entrée `u16` du buffer à l'index de la tuile
-2. `collision = (entry & 0x0C00) >> 10` → si ≠0 : **WALL** (stop)
-3. sinon `metatile_id = entry & 0x03FF`
-4. `metatile_id` → attributs du tileset → **behavior**
-5. behavior → `GRASS` / `LEDGE_<dir>` / sinon **FREE**
+- **`tile_behavior_at(x,y)`** = behavior BRUT de la tuile, **collision ignorée**.
+  Une tuile mur-arbre a `collision != 0` ET un behavior valide → cette fonction
+  rend le behavior (≠ `None`). C'est ce que `WorldReader._tile_behavior()` veut.
+- **`classify_at(x,y)`** = passabilité, **collision D'ABORD** :
+  1. lire l'entrée `u16` du buffer à l'index de la tuile
+  2. `collision = (entry & 0x0C00) >> 10` → si ≠0 : **WALL** (stop, on ne lit
+     même pas le behavior pour la classif)
+  3. sinon `metatile_id = entry & 0x03FF`
+  4. `metatile_id` → attributs du tileset → **behavior**
+  5. behavior → `GRASS` / `LEDGE_<dir>` / sinon **FREE**
+
+Les **bits d'élévation (12-15) sont ignorés** en Brique 1 (simplification assumée :
+en Emerald ils gèrent ponts/multi-niveaux ; inoffensif sur route_101, à revisiter
+en Brique 2 si une carte multi-niveau pose problème).
 
 ### Point d'intégration unique
 
@@ -119,6 +133,15 @@ d'herbe à l'ouest, colonne x≈2). Une adresse/formule n'est retenue que si la 
 décodée reproduit ces faits. **Si la découverte échoue en budget raisonnable →
 remonter à l'user avant d'écrire du code spéculatif.**
 
+**ATTENTION — validation circulaire.** La sonde tune les adresses JUSQU'À ce que
+ces faits (joueur FREE, ledge, herbe) soient vrais. Donc un test qui asserte
+**les mêmes faits** est vrai par construction — ce n'est PAS un contrôle
+indépendant. Le seul assert vraiment load-bearing est le **cross-check bump-test**
+du smoke (un mur trouvé par un moyen orthogonal, WallMap live, doit ressortir
+`WALL`). Les faits de géométrie restent utiles comme garde de cohérence, mais on
+ne doit pas se convaincre que le décodage est correct sur leur seule foi — c'est
+exactement l'auto-illusion qui a produit la fausse conclusion « boxed ».
+
 ## Gestion d'erreurs (valider à la frontière RAM)
 
 - pointeur/dimensions nuls ou aberrants (warp, incohérence SaveBlock1 1-tick déjà
@@ -131,22 +154,26 @@ remonter à l'user avant d'écrire du code spéculatif.**
 ## Tests
 
 **Purs (fake `read` sur buffer forgé, zéro ROM)** :
-- `dimensions()` lit w/h
-- `collision != 0` → `WALL`
-- behavior herbe → `GRASS`
-- behavior ledge est → `LEDGE_RIGHT`
+- `dimensions()` lit w/h (en tuiles-carte, bordure retirée)
+- `classify_at` : `collision != 0` → `WALL`
+- `classify_at` : behavior herbe → `GRASS`
+- `classify_at` : behavior ledge est → `LEDGE_RIGHT`
+- `tile_behavior_at` **ignore la collision** : sur une tuile `collision != 0`,
+  rend quand même le behavior brut (≠ `None`) alors que `classify_at` rend `WALL`
 - split `metatile_id` (masque `0x03FF`) correct
 - frontière tileset primary/secondary à `0x200`
-- marqueur `0x3FF` → `WALL`
+- marqueur `0x3FF` → `classify_at` = `WALL`
 - (x,y) OOB → `None`
 
 **Smoke ROM gaté** (`states/post_starter.state`, skip si ROM/état absent) :
 - `dimensions()` plausibles
-- tuile joueur (10,17) = `FREE`
-- **cross-check** : au moins une tuile **mur franc** (arbre / bord de carte),
-  confirmée bloquée par un bump-test WallMap live, ressort `WALL` dans la grille.
-  **Choisir un mur franc, PAS une ledge** : une ledge est collision=0 (grille dit
-  `LEDGE_*`) mais bump-bloquée en montée → assert `WALL` échouerait à tort.
+- tuile joueur (10,17) = `FREE` *(cohérence, PAS load-bearing — cf. validation
+  circulaire ci-dessus)*
+- **cross-check (seul assert load-bearing)** : au moins une tuile **mur franc**
+  (arbre / bord de carte), confirmée bloquée par un bump-test WallMap live,
+  ressort `WALL` dans la grille. **Choisir un mur franc, PAS une ledge** : une
+  ledge est collision=0 (grille dit `LEDGE_*`) mais bump-bloquée en montée →
+  assert `WALL` échouerait à tort.
 
 ## Critère de validation
 
