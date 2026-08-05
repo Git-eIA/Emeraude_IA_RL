@@ -10,8 +10,9 @@ from gymnasium import spaces
 from PIL import Image
 
 from emulator import buttons
-from env.game_state import EmeraldReader, PlayerState
-from env.milestones import MilestoneTracker, starter_milestones
+from env.battle_player import play_battle, play_trainer_battle
+from env.game_state import BattleReader, EmeraldReader, PlayerState
+from env.milestones import ROUTE_103, EnvContext, MilestoneTracker, starter_milestones
 from env.rewards import TIME_PENALTY, ExplorationTracker, LevelRewardTracker
 
 FRAME_SIZE = (84, 84)  # (width, height) after downscale
@@ -42,6 +43,9 @@ class PokemonEmeraldEnv(gym.Env):
         emulator: Any,
         initial_states: list[bytes],
         max_steps: int = 2048,
+        milestones: tuple | None = None,
+        move_type_fn: Any = None,
+        predict: Any = None,
     ) -> None:
         super().__init__()
         if not initial_states:
@@ -50,11 +54,15 @@ class PokemonEmeraldEnv(gym.Env):
         self._initial_states = initial_states
         self._max_steps = max_steps
         self._reader = EmeraldReader(emulator.read_bytes)
+        self._battle_reader = BattleReader(emulator.read_bytes)
         self._tracker = ExplorationTracker()
-        self._milestones = MilestoneTracker(starter_milestones())
+        self._milestones = MilestoneTracker(milestones or starter_milestones())
         self._levels = LevelRewardTracker()
         self._frames: deque[np.ndarray] = deque(maxlen=FRAME_STACK)
         self._step_count = 0
+        self._move_type_fn = move_type_fn
+        self._predict = predict
+        self._rival_beaten: bool = False
         self.action_space = spaces.Discrete(len(self.ACTIONS))
         self.observation_space = spaces.Box(low=0, high=255, shape=OBS_SHAPE, dtype=np.uint8)
 
@@ -69,6 +77,7 @@ class PokemonEmeraldEnv(gym.Env):
         self._levels.reset()
         self._frames.clear()
         self._step_count = 0
+        self._rival_beaten = False
         frame = self._current_frame()
         for _ in range(FRAME_STACK):
             self._frames.append(frame)
@@ -79,11 +88,27 @@ class PokemonEmeraldEnv(gym.Env):
     ) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
         keys = _ACTION_KEYS[self.ACTIONS[action]]
         self.emulator.step(keys, FRAMES_PER_ACTION)
+        # Battle hook: resolve any in-progress battle before the frame/state read,
+        # so this step's frame + player_state reflect the post-battle overworld.
+        if self._move_type_fn is not None and self._predict is not None:
+            bs = self._battle_reader.battle_state()
+            if bs.in_battle:
+                # G3: read map at battle START (battles never warp the player).
+                pre = self._reader.player_state()
+                on_route103 = pre is not None and (pre.map_group, pre.map_num) == ROUTE_103
+                if self._battle_reader.is_trainer_battle():
+                    result = play_trainer_battle(self.emulator, self._move_type_fn, self._predict)
+                    if result == "won" and on_route103:
+                        self._rival_beaten = True
+                else:
+                    play_battle(self.emulator, self._move_type_fn, self._predict)
         self._frames.append(self._current_frame())
         self._step_count += 1
         state = self._reader.player_state()
         reward = self._tracker.update(state)
-        milestone_reward, terminated = self._milestones.update(state)
+        milestone_reward, terminated = self._milestones.update(
+            state, EnvContext(rival_beaten=self._rival_beaten)
+        )
         reward += milestone_reward + self._levels.update(self._reader.party_levels())
         reward += TIME_PENALTY
         truncated = not terminated and self._step_count >= self._max_steps

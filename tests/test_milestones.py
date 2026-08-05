@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from env.game_state import PlayerState
-from env.milestones import Milestone, MilestoneTracker, starter_milestones
+from env.milestones import EnvContext, Milestone, MilestoneTracker, route103_milestones, starter_milestones
 
 
 def make_state(**overrides) -> PlayerState:
@@ -178,6 +178,62 @@ def test_meet_rival_rejects_out_of_range_town_state():
     tracker = MilestoneTracker(starter_milestones())
     tracker.update(make_state(clock_set=True, town_state=40))
     assert "meet_rival" not in tracker.fired
+
+
+def test_env_condition_blocks_fire_when_ctx_false():
+    m = Milestone(
+        "beat_rival",
+        lambda s: (s.map_group, s.map_num) == (0, 18),
+        100.0,
+        terminal=True,
+        env_condition=lambda ctx: ctx.rival_beaten,
+    )
+    tracker = MilestoneTracker((m,))
+    on_route103 = make_state(map_group=0, map_num=18)
+    assert tracker.update(on_route103, EnvContext(rival_beaten=False)) == (0.0, False)
+    assert tracker.fired == set()
+
+
+def test_env_condition_fires_when_both_hold():
+    m = Milestone(
+        "beat_rival",
+        lambda s: (s.map_group, s.map_num) == (0, 18),
+        100.0,
+        terminal=True,
+        env_condition=lambda ctx: ctx.rival_beaten,
+    )
+    tracker = MilestoneTracker((m,))
+    on_route103 = make_state(map_group=0, map_num=18)
+    assert tracker.update(on_route103, EnvContext(rival_beaten=True)) == (100.0, True)
+    assert tracker.fired == {"beat_rival"}
+
+
+def test_starter_milestones_unaffected_by_passed_ctx():
+    tracker = MilestoneTracker(starter_milestones())
+    state = make_state(map_group=0, map_num=9, x=5, y=0, clock_set=True)
+    without = MilestoneTracker(starter_milestones()).update(state)
+    with_ctx = tracker.update(state, EnvContext(rival_beaten=True))
+    assert with_ctx == without
+
+
+def test_route103_milestones_shape():
+    table = route103_milestones()
+    names = [m.name for m in table]
+    assert names == ["reach_oldale", "reach_route_103", "beat_rival"]
+    points = {m.name: m.points for m in table}
+    assert points == {"reach_oldale": 30.0, "reach_route_103": 40.0, "beat_rival": 100.0}
+    beat = next(m for m in table if m.name == "beat_rival")
+    assert beat.terminal is True
+    assert beat.env_condition is not None
+    assert all(m.env_condition is None for m in table if m.name != "beat_rival")
+
+
+def test_reach_oldale_fires_on_oldale_only():
+    tracker = MilestoneTracker(route103_milestones())
+    assert tracker.update(make_state(map_group=0, map_num=16)) == (0.0, False)
+    assert tracker.fired == set()
+    assert tracker.update(make_state(map_group=0, map_num=10)) == (30.0, False)
+    assert tracker.fired == {"reach_oldale"}
 
 
 def test_full_chain_sums_to_190():
