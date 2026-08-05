@@ -163,7 +163,9 @@ class MilestoneTracker:
     def reset(self) -> None:
         self._fired.clear()
 
-    def update(self, state: PlayerState | None, ctx: EnvContext | None = None) -> tuple[float, bool]:
+    def update(
+        self, state: PlayerState | None, ctx: EnvContext | None = None
+    ) -> tuple[float, bool]:
         """Returns (reward, terminated) for this step."""
         if state is None:
             return 0.0, False
