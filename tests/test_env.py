@@ -169,3 +169,91 @@ def test_info_exposes_pos_and_step():
     _, _, _, _, info = env.step(right)
     assert info["pos"] == (6, 5)
     assert info["step"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Injectable milestones + Fighter battle hook + rival-beaten latch
+# ---------------------------------------------------------------------------
+
+from env import pokemon_env as pe  # noqa: E402  (import after helpers are defined)
+from env.milestones import route103_milestones  # noqa: E402
+
+
+class _StubBattleReader:
+    """Reports a scripted battle sequence for the env hook."""
+
+    def __init__(self, script):
+        # script: list of (in_battle, is_trainer) tuples consumed per call.
+        self._script = list(script)
+        self._i = 0
+
+    def battle_state(self):
+        in_battle, _ = self._script[min(self._i, len(self._script) - 1)]
+
+        class _BS:
+            pass
+
+        bs = _BS()
+        bs.in_battle = in_battle
+        return bs
+
+    def is_trainer_battle(self):
+        _, is_trainer = self._script[min(self._i, len(self._script) - 1)]
+        return is_trainer
+
+    def advance(self):
+        self._i += 1
+
+
+def test_injected_milestones_swaps_the_table():
+    env = pe.PokemonEmeraldEnv(
+        FakeEmulator(), initial_states=[b"fake"], max_steps=50,
+        milestones=route103_milestones(),
+    )
+    env.reset()
+    assert [m.name for m in env._milestones._milestones] == [
+        "reach_oldale", "reach_route_103", "beat_rival",
+    ]
+
+
+def test_default_ctor_uses_starter_milestones():
+    env = pe.PokemonEmeraldEnv(FakeEmulator(), initial_states=[b"fake"], max_steps=50)
+    env.reset()
+    names = {m.name for m in env._milestones._milestones}
+    assert "starter_obtained" in names
+
+
+def test_trainer_win_on_route103_latches_rival_beaten(monkeypatch):
+    emu = FakeEmulator()
+    emu.map_group, emu.map_num = 0, 18  # route_103
+
+    monkeypatch.setattr(pe, "play_trainer_battle", lambda *a, **k: "won")
+    monkeypatch.setattr(pe, "play_battle", lambda *a, **k: "won")
+
+    env = pe.PokemonEmeraldEnv(
+        emu, initial_states=[b"fake"], max_steps=50,
+        milestones=route103_milestones(),
+        move_type_fn=lambda t: 0, predict=lambda obs: 0,
+    )
+    env.reset()
+    env._battle_reader = _StubBattleReader([(True, True), (False, False)])
+    env.step(0)
+    assert env._rival_beaten is True
+
+
+def test_wild_battle_does_not_latch_rival_beaten(monkeypatch):
+    emu = FakeEmulator()
+    emu.map_group, emu.map_num = 0, 18
+
+    monkeypatch.setattr(pe, "play_trainer_battle", lambda *a, **k: "won")
+    monkeypatch.setattr(pe, "play_battle", lambda *a, **k: "won")
+
+    env = pe.PokemonEmeraldEnv(
+        emu, initial_states=[b"fake"], max_steps=50,
+        milestones=route103_milestones(),
+        move_type_fn=lambda t: 0, predict=lambda obs: 0,
+    )
+    env.reset()
+    env._battle_reader = _StubBattleReader([(True, False), (False, False)])
+    env.step(0)
+    assert env._rival_beaten is False
