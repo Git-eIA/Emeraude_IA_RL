@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from env.game_state import (
     BATTLE_MON_SIZE,
+    BATTLE_TYPE_TRAINER,
     GBATTLE_MONS_ADDR,
     GBATTLE_OUTCOME_ADDR,
     GBATTLE_TYPE_FLAGS_ADDR,
@@ -45,11 +46,15 @@ def _mon_bytes(
 def _make_reader(
     *,
     in_battle: bool = True,
+    flags: int | None = None,
     outcome: int = 0,
     move_result: int = 0,
     player: bytearray | None = None,
     opponent: bytearray | None = None,
 ) -> BattleReader:
+    # Default flags: 1 (minimal non-zero) when in_battle, 0 otherwise.
+    # Callers may pass an explicit flags word to exercise specific flag bits.
+    _flags = flags if flags is not None else (1 if in_battle else 0)
     player = player or _mon_bytes(
         species=1, hp=19, max_hp=19, level=5, types=(12, 12),
         moves=(33, 45, 0, 0), pp=(35, 40, 0, 0),
@@ -61,7 +66,7 @@ def _make_reader(
 
     def read(addr: int, size: int) -> bytes:
         if addr == GBATTLE_TYPE_FLAGS_ADDR:
-            return _u16(1 if in_battle else 0) + b"\x00\x00"
+            return _u16(_flags) + b"\x00\x00"
         if addr == GBATTLE_OUTCOME_ADDR:
             return bytes([outcome])
         if addr == GMOVE_RESULT_FLAGS_ADDR:
@@ -124,3 +129,14 @@ def test_not_in_battle_when_outcome_is_terminal_despite_residual_flags() -> None
     state = _make_reader(in_battle=True, outcome=1).battle_state()
     assert state.opp_max_hp > 0  # residual battle RAM still present
     assert state.in_battle is False
+
+
+def test_is_trainer_battle_true_when_trainer_bit_set() -> None:
+    reader = _make_reader(in_battle=True, flags=BATTLE_TYPE_TRAINER | 0x0001)
+    assert reader.is_trainer_battle() is True
+
+
+def test_is_trainer_battle_false_for_wild_flags() -> None:
+    # Wild battles have non-zero flags but the 0x0008 trainer bit is clear.
+    reader = _make_reader(in_battle=True, flags=0x0001)
+    assert reader.is_trainer_battle() is False

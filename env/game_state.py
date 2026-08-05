@@ -167,6 +167,10 @@ _BM_MAXHP = 0x2C
 
 _MOVE_RESULT_SUPER_EFFECTIVE = 0x0008
 
+# gBattleTypeFlags bit that distinguishes trainer battles from wild encounters.
+# Source: pret/pokeemerald include/constants/battle.h BATTLE_TYPE_TRAINER.
+BATTLE_TYPE_TRAINER = 0x0008
+
 
 @dataclass(frozen=True)
 class MoveInfo:
@@ -229,6 +233,10 @@ class BattleReader:
             outcome=outcome,
             last_move_super_effective=bool(move_result & _MOVE_RESULT_SUPER_EFFECTIVE),
         )
+
+    def is_trainer_battle(self) -> bool:
+        """True when the current battle is against a trainer (not wild)."""
+        return bool(self._u16(GBATTLE_TYPE_FLAGS_ADDR) & BATTLE_TYPE_TRAINER)
 
     def _read_mon(self, base: int) -> dict:
         moves = tuple(
