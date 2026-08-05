@@ -181,6 +181,17 @@ class MapGridReader:
             index = metatile_id - _SECONDARY_TILESET_START
         return self._u16(table + 2 * index) & _BEHAVIOR_MASK
 
+    def tile_behavior_at(self, x: int, y: int) -> int | None:
+        """Raw metatile behavior at (x,y), collision IGNORED. None if off-map.
+
+        This is what WorldReader._tile_behavior wants: the behavior byte of the
+        tile the player stands on, regardless of passability.
+        """
+        entry = self._raw_entry(x, y)
+        if entry is None:
+            return None
+        return self._behavior(entry & _METATILE_ID_MASK)
+
     def _attr_table_for(self, metatile_id: int) -> int | None:
         """Resolve the metatileAttributes table ptr for a metatile id."""
         layout_ptr = self._u32(MAP_HEADER_ADDR + _MH_MAP_LAYOUT_PTR)

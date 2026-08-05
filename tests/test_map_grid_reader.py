@@ -135,3 +135,19 @@ def test_classify_out_of_bounds_is_none() -> None:
     mem = _build(25, 34)
     assert MapGridReader(mem.read).classify_at(-1, 0) is None
     assert MapGridReader(mem.read).classify_at(10, 0) is None  # w==10 -> x in 0..9
+
+
+def test_tile_behavior_ignores_collision() -> None:
+    # A wall-tree tile: collision bit SET, but behavior is tall grass.
+    # classify_at -> WALL (collision-first), tile_behavior_at -> the raw byte.
+    mem = _build(25, 34)
+    _set_tile(mem, 25, MAP_OFFSET, MAP_OFFSET, 0x0400 | 0x000A)
+    _set_behavior(mem, 0x000A, MB_TALL_GRASS)
+    reader = MapGridReader(mem.read)
+    assert reader.classify_at(0, 0) is TileKind.WALL
+    assert reader.tile_behavior_at(0, 0) == MB_TALL_GRASS
+
+
+def test_tile_behavior_out_of_bounds_is_none() -> None:
+    mem = _build(25, 34)
+    assert MapGridReader(mem.read).tile_behavior_at(-1, 0) is None
