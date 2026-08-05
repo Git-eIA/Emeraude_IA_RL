@@ -148,7 +148,10 @@ exactement l'auto-illusion qui a produit la fausse conclusion « boxed ».
   connue, buffer partiellement réécrit en transition) → rendre `None`. Contrat
   best-effort : un snapshot peut être périmé d'1 tick (déjà le contrat WorldReader).
 - dimensions bornées plausibles (ex. w,h ∈ [1, 256]) sinon `None`
-- `metatile_id == 0x3FF` (marqueur corruption, réf heatz123) → `WALL` (sûr)
+- `metatile_id == 0x3FF` (marqueur corruption, réf heatz123) → `WALL` (sûr).
+  NOTE : 0x3FF est aussi l'id max théorique (`& 0x03FF`) → un metatile légitime
+  d'id 1023 serait pris pour corrompu et classé `WALL`. C'est **conservateur** (au
+  pire un mur en trop, jamais une fausse passabilité) donc accepté.
 - (x,y) hors bornes → `None`
 
 ## Tests
@@ -177,10 +180,19 @@ exactement l'auto-illusion qui a produit la fausse conclusion « boxed ».
 
 ## Critère de validation
 
-La grille décodée de route_101 depuis `post_starter` reproduit les 3 faits connus
-(joueur (10,17) FREE, ledge au milieu classée `LEDGE_*`, herbe ouest `GRASS`) ET
-le tool jetable rend une vue lisible où la ledge à sens unique et la connexion nord
-vers Oldale sont visibles.
+**Load-bearing (le seul qui prouve le décodage)** : le cross-check bump-test du
+smoke — une tuile bloquée trouvée orthogonalement (WallMap live) ressort `WALL`
+dans la grille. C'est le harnais qui pilote réellement le perso pour buter dans un
+mur ; ce n'est pas un assert trivial, le plan doit le dimensionner.
+
+**Nécessaire mais PAS suffisant (cohérence, cf. §validation circulaire)** : la
+grille reproduit les 3 faits connus (joueur (10,17) FREE, ledge au milieu classée
+`LEDGE_*`, herbe ouest `GRASS`). La sonde a tuné les adresses jusqu'à ce qu'ils
+soient vrais → ils gardent contre une régression grossière mais ne prouvent pas la
+justesse à eux seuls.
+
+**Lisibilité** : `tools/dump_map_grid.py` rend une vue où la ledge à sens unique et
+la connexion nord vers Oldale sont visibles.
 
 ## Livrable annexe
 
