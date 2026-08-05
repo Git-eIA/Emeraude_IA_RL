@@ -151,3 +151,22 @@ def test_tile_behavior_ignores_collision() -> None:
 def test_tile_behavior_out_of_bounds_is_none() -> None:
     mem = _build(25, 34)
     assert MapGridReader(mem.read).tile_behavior_at(-1, 0) is None
+
+
+def test_grid_returns_full_classified_rectangle() -> None:
+    mem = _build(25, 34)
+    _set_tile(mem, 25, MAP_OFFSET + 1, MAP_OFFSET, 0x0400)  # (1,0) wall
+    _set_tile(mem, 25, MAP_OFFSET, MAP_OFFSET + 1, 0x0005)  # (0,1) grass
+    _set_behavior(mem, 0x0005, MB_TALL_GRASS)
+    g = MapGridReader(mem.read).grid()
+    assert g is not None
+    assert len(g) == 20 and len(g[0]) == 10
+    assert g[0][1] is TileKind.WALL
+    assert g[1][0] is TileKind.GRASS
+    assert g[0][0] is TileKind.FREE
+
+
+def test_grid_none_when_no_map() -> None:
+    mem = _build(25, 34)
+    mem.write_u32(BACKUP_MAP_LAYOUT_ADDR + _BML_MAP_PTR, 0x00000000)
+    assert MapGridReader(mem.read).grid() is None

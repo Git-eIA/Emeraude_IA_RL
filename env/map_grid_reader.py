@@ -181,6 +181,22 @@ class MapGridReader:
             index = metatile_id - _SECONDARY_TILESET_START
         return self._u16(table + 2 * index) & _BEHAVIOR_MASK
 
+    def grid(self) -> list[list[TileKind]] | None:
+        """Full [y][x] classified rectangle, or None if unreadable.
+
+        Any cell that would classify as None (shouldn't happen inside bounds) is
+        pinned to WALL so the returned grid never contains None. NOT for hot
+        loops -- reads the whole map every call; callers cache it.
+        """
+        dims = self.dimensions()
+        if dims is None:
+            return None
+        w, h = dims
+        return [
+            [self.classify_at(x, y) or TileKind.WALL for x in range(w)]
+            for y in range(h)
+        ]
+
     def tile_behavior_at(self, x: int, y: int) -> int | None:
         """Raw metatile behavior at (x,y), collision IGNORED. None if off-map.
 
