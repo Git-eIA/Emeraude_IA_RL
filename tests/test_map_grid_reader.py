@@ -6,9 +6,14 @@ import pytest  # noqa: F401
 from env.map_grid_reader import (
     BACKUP_MAP_LAYOUT_ADDR,
     MAP_HEADER_ADDR,
+    MAP_OFFSET,
+    MB_JUMP_EAST,
+    MB_TALL_GRASS,
+    TileKind,
     _BML_HEIGHT,
     _BML_MAP_PTR,
     _BML_WIDTH,
+    _CORRUPTION_ID,
     MapGridReader,
 )
 
@@ -84,3 +89,49 @@ def test_dimensions_none_when_map_ptr_out_of_ram() -> None:
 def test_dimensions_none_when_size_aberrant() -> None:
     mem = _build(0, 34)  # width 0 -> nonsense
     assert MapGridReader(mem.read).dimensions() is None
+
+
+def test_classify_collision_is_wall() -> None:
+    mem = _build(25, 34)
+    _set_tile(mem, 25, MAP_OFFSET, MAP_OFFSET, 0x0400)  # collision bit set
+    assert MapGridReader(mem.read).classify_at(0, 0) is TileKind.WALL
+
+
+def test_classify_grass() -> None:
+    mem = _build(25, 34)
+    _set_tile(mem, 25, MAP_OFFSET, MAP_OFFSET, 0x0005)  # metatile 5, no collision
+    _set_behavior(mem, 0x0005, MB_TALL_GRASS)
+    assert MapGridReader(mem.read).classify_at(0, 0) is TileKind.GRASS
+
+
+def test_classify_ledge_east_is_right() -> None:
+    mem = _build(25, 34)
+    _set_tile(mem, 25, MAP_OFFSET, MAP_OFFSET, 0x0006)
+    _set_behavior(mem, 0x0006, MB_JUMP_EAST)
+    assert MapGridReader(mem.read).classify_at(0, 0) is TileKind.LEDGE_RIGHT
+
+
+def test_classify_plain_is_free() -> None:
+    mem = _build(25, 34)
+    _set_tile(mem, 25, MAP_OFFSET, MAP_OFFSET, 0x0007)
+    _set_behavior(mem, 0x0007, 0x00)  # MB_NORMAL
+    assert MapGridReader(mem.read).classify_at(0, 0) is TileKind.FREE
+
+
+def test_classify_secondary_tileset_boundary() -> None:
+    mem = _build(25, 34)
+    _set_tile(mem, 25, MAP_OFFSET, MAP_OFFSET, 0x0201)  # secondary metatile
+    _set_behavior(mem, 0x0201, MB_TALL_GRASS)
+    assert MapGridReader(mem.read).classify_at(0, 0) is TileKind.GRASS
+
+
+def test_classify_corruption_marker_is_wall() -> None:
+    mem = _build(25, 34)
+    _set_tile(mem, 25, MAP_OFFSET, MAP_OFFSET, _CORRUPTION_ID)  # 0x3FF, no collision
+    assert MapGridReader(mem.read).classify_at(0, 0) is TileKind.WALL
+
+
+def test_classify_out_of_bounds_is_none() -> None:
+    mem = _build(25, 34)
+    assert MapGridReader(mem.read).classify_at(-1, 0) is None
+    assert MapGridReader(mem.read).classify_at(10, 0) is None  # w==10 -> x in 0..9

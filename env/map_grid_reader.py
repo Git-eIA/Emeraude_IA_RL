@@ -133,3 +133,64 @@ class MapGridReader:
     def _s32(self, addr: int) -> int:
         v = self._u32(addr)
         return v - 0x100000000 if v & 0x80000000 else v
+
+    def classify_at(self, x: int, y: int) -> TileKind | None:
+        """Passability of the tile at logical (x,y). None if off-map/unreadable.
+
+        Collision is read FIRST: any collision -> WALL and behavior is never
+        consulted. Corruption marker -> WALL (conservative).
+        """
+        entry = self._raw_entry(x, y)
+        if entry is None:
+            return None
+        metatile_id = entry & _METATILE_ID_MASK
+        if (entry & _COLLISION_MASK) >> _COLLISION_SHIFT != 0:
+            return TileKind.WALL
+        if metatile_id == _CORRUPTION_ID:
+            return TileKind.WALL
+        behavior = self._behavior(metatile_id)
+        if behavior is None:
+            return TileKind.WALL
+        if behavior in _LEDGE_BY_BEHAVIOR:
+            return _LEDGE_BY_BEHAVIOR[behavior]
+        if behavior in _GRASS_BEHAVIORS:
+            return TileKind.GRASS
+        return TileKind.FREE
+
+    def _raw_entry(self, x: int, y: int) -> int | None:
+        """The u16 map entry at logical (x,y), or None if off-map/unreadable."""
+        dims = self.dimensions()
+        layout = self._layout()
+        if dims is None or layout is None:
+            return None
+        w, h = dims
+        if not (0 <= x < w and 0 <= y < h):
+            return None
+        pw, _ph, map_ptr = layout
+        px, py = x + MAP_OFFSET, y + MAP_OFFSET
+        return self._u16(map_ptr + 2 * (py * pw + px))
+
+    def _behavior(self, metatile_id: int) -> int | None:
+        """Low-byte behavior of a metatile, or None if the attr table is bad."""
+        table = self._attr_table_for(metatile_id)
+        if table is None:
+            return None
+        if metatile_id < _SECONDARY_TILESET_START:
+            index = metatile_id
+        else:
+            index = metatile_id - _SECONDARY_TILESET_START
+        return self._u16(table + 2 * index) & _BEHAVIOR_MASK
+
+    def _attr_table_for(self, metatile_id: int) -> int | None:
+        """Resolve the metatileAttributes table ptr for a metatile id."""
+        layout_ptr = self._u32(MAP_HEADER_ADDR + _MH_MAP_LAYOUT_PTR)
+        if not self._is_ptr(layout_ptr):
+            return None
+        if metatile_id < _SECONDARY_TILESET_START:
+            ts = self._u32(layout_ptr + _ML_PRIMARY_TILESET_PTR)
+        else:
+            ts = self._u32(layout_ptr + _ML_SECONDARY_TILESET_PTR)
+        if not self._is_ptr(ts):
+            return None
+        table = self._u32(ts + _TS_METATILE_ATTR_PTR)
+        return table if self._is_ptr(table) else None
