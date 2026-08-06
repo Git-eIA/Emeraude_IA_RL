@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 
 from emulator.gba import GbaEmulator
-from env.local_navigator import DIRECTIONS, WallMap
 from env.map_memory import MapMemory
 from env.world_reader import WorldReader
 from env.world_surveyor import survey_world
@@ -32,21 +31,16 @@ def test_survey_world_smoke_is_coherent_and_learns() -> None:
     start = reader.snapshot()
     assert start is not None, "open_map.state should sit on a readable map"
     start_map = start.map_id
-    start_cell = start.pos
 
     memory = MapMemory()
-    wallmap = WallMap()
 
-    report = survey_world(emulator, reader, memory, wallmap, max_maps=2)
+    report = survey_world(emulator, reader, memory, max_maps=2)
 
     # Report is coherent: at least the starting map was attempted.
     assert report.surveyed or report.failed
 
-    # Learning is externally visible via public API: wall learned or portal recorded.
-    learned_wall = any(
-        wallmap.is_blocked(start_map, start_cell, d) for d in DIRECTIONS
-    )
+    # Learning is externally visible via public API: portal recorded or failure logged.
     learned_portal = bool(memory.outgoing_portals(start_map)) if report.surveyed else False
-    assert learned_wall or learned_portal or report.failed, (
-        "survey_world should learn a wall, record a portal, or record a failure"
+    assert learned_portal or report.failed, (
+        "survey_world should record a portal or record a failure"
     )

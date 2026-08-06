@@ -1,15 +1,15 @@
 """world_surveyor: chart the reachable overworld map-by-map.
 
 survey_world starts wherever the player stands and repeatedly travels to a
-not-yet-surveyed map and surveys it (travel_to + map_map), discovering new maps
-through the reversible border portals map_map records. Overworld only: building
-warps (non-reversible) are never followed. Log-and-continue: a failed leg is
-recorded in the SurveyReport and the sweep goes on. No training, no reward,
-no Strategist. Emerald (BPEF) only.
+not-yet-surveyed map and surveys it (travel_to + explore_grid), discovering new
+maps through the reversible border portals explore_grid records. Overworld only:
+building warps (non-reversible) are never followed. Log-and-continue: a failed
+leg is recorded in the SurveyReport and the sweep goes on. No training, no
+reward, no Strategist. Emerald (BPEF) only.
 
 Fighter deps (move_type_fn / predict) are forwarded to both travel_to and
-map_map so wild battles encountered during the sweep can be played out. If the
-Fighter loses, times out, or is absent when a battle starts, the sweep aborts
+explore_grid so wild battles encountered during the sweep can be played out. If
+the Fighter loses, times out, or is absent when a battle starts, the sweep aborts
 immediately and the offending leg is recorded as "travel:<outcome>" or
 "map:<outcome>" in the SurveyReport.
 """
@@ -19,9 +19,8 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
-from env.live_navigator import snapshot_settled
-from env.local_navigator import WallMap
-from env.map_explorer import map_map
+from env.grid_explorer import explore_grid
+from env.grid_navigator import snapshot_settled
 from env.map_memory import MapMemory, Portal
 from env.map_traveler import BATTLE_OUTCOMES, travel_to
 
@@ -40,7 +39,6 @@ def survey_world(
     emulator: Any,
     reader: Any,
     memory: MapMemory,
-    wallmap: WallMap,
     max_maps: int = 50,
     move_type_fn: Any = None,
     predict: Any = None,
@@ -51,7 +49,7 @@ def survey_world(
     a reason ("travel:<outcome>" or "map:<result>"). Bounded by max_maps
     (code-safety rule #2); BFS is iterative, no recursion.
 
-    move_type_fn / predict are forwarded to travel_to and map_map. A battle
+    move_type_fn / predict are forwarded to travel_to and explore_grid. A battle
     outcome (battle_lost / battle_timeout / battle_interrupted) aborts the
     whole sweep immediately and is recorded in failed.
     """
@@ -74,7 +72,7 @@ def survey_world(
             # The start map has no incoming portal; we already stand on it, so
             # never route to it (guards _entry_cell against an empty [] index).
             outcome = travel_to(
-                emulator, reader, memory, wallmap,
+                emulator, reader, memory,
                 target, _entry_cell(memory, target),
                 move_type_fn=move_type_fn, predict=predict,
             )
@@ -85,8 +83,8 @@ def survey_world(
                 failed.append((target, f"travel:{outcome}"))
                 continue
 
-        result = map_map(
-            emulator, reader, memory, wallmap, target,
+        result = explore_grid(
+            emulator, reader, memory, target,
             move_type_fn=move_type_fn, predict=predict,
         )
         if result in BATTLE_OUTCOMES:

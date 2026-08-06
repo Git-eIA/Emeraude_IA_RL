@@ -189,6 +189,17 @@ def probe_step(emulator: Any, reader: Any, before: Any, direction: str) -> str:
     return outcome
 
 
+def _adjacent_direction(
+    pos: tuple[int, int], target: tuple[int, int]
+) -> str | None:
+    """Return the direction from pos to target if they are exactly one step apart."""
+    dx, dy = target[0] - pos[0], target[1] - pos[1]
+    for direction, (ddx, ddy) in DELTAS.items():
+        if dx == ddx and dy == ddy:
+            return direction
+    return None
+
+
 def navigate_grid(
     emulator: Any,
     reader: Any,
@@ -240,8 +251,17 @@ def navigate_grid(
 
         path = plan_path_grid(snap, before.pos, target, blocked=blocked)
         if path is None:
-            return "unreachable"
-        direction = path[0]
+            # Target may be an off-map neighbour (OOB): if the player is exactly
+            # one step away and target is outside the grid bounds, attempt the
+            # press — a border crossing returns "left_map" (travel_to portal leg).
+            tx, ty = target
+            target_oob = not (0 <= tx < snap.width and 0 <= ty < snap.height)
+            adj_dir = _adjacent_direction(before.pos, target) if target_oob else None
+            if adj_dir is None:
+                return "unreachable"
+            direction = adj_dir
+        else:
+            direction = path[0]
         outcome = probe_step(emulator, reader, before, direction)
         if outcome == "transition":
             if memory is not None:
