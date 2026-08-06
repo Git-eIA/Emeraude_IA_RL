@@ -27,6 +27,11 @@ class WorldReader:
         self._battle = BattleReader(read)
         self._grid = MapGridReader(read)
 
+    @property
+    def grid_reader(self) -> MapGridReader:
+        """The MapGridReader decoding the currently-loaded map (Brique 1)."""
+        return self._grid
+
     def snapshot(self) -> WorldSnapshot | None:
         """Snapshot the world, or None while the save blocks relocate."""
         ps = self._reader.player_state()

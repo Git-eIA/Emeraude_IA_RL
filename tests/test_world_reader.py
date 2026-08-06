@@ -116,3 +116,15 @@ def test_party_levels_passthrough_returns_ram_reader_levels() -> None:
     emu.party_count = 2
     emu.party_levels = [7, 5]
     assert _reader(emu).party_levels() == [7, 5]
+
+
+def test_grid_reader_exposes_the_map_grid_reader():
+    from env.map_grid_reader import MapGridReader
+
+    def read(_addr, _size):
+        return b"\x00" * _size
+
+    reader = WorldReader(read)
+    assert isinstance(reader.grid_reader, MapGridReader)
+    # same instance each access (no re-construction)
+    assert reader.grid_reader is reader.grid_reader
