@@ -1,17 +1,16 @@
 """map_traveler: walk the Explorer across maps, door to door.
 
-travel_to chains P2 route planning (plan_route) with P3 step-1 intra-map
-navigation (navigate_to): walk to each known portal cell, cross it, repeat until
-the goal cell on the goal map is reached. Known territory only — an unknown door
-on the route returns "unknown_route" rather than exploring (mapping mode is a
-later step). No training, no reward. Emerald (BPEF) only.
+travel_to chains P2 route planning (plan_route) with ledge-aware intra-map
+navigation (navigate_grid): walk to each known portal cell, cross it, repeat
+until the goal cell on the goal map is reached. Known territory only — an
+unknown door on the route returns "unknown_route" rather than exploring (mapping
+mode is a later step). No training, no reward. Emerald (BPEF) only.
 """
 from __future__ import annotations
 
 from typing import Any
 
-from env.live_navigator import navigate_to
-from env.local_navigator import DELTAS, WallMap
+from env.grid_navigator import DELTAS, navigate_grid
 from env.map_memory import MapMemory
 from env.route_planner import plan_route
 
@@ -23,7 +22,6 @@ def travel_to(
     emulator: Any,
     reader: Any,
     memory: MapMemory,
-    wallmap: WallMap,
     goal_map: tuple[int, int],
     goal_cell: tuple[int, int],
     max_hops: int = 20,
@@ -41,8 +39,8 @@ def travel_to(
             emulator.step(0, 1)   # relocating; idle a beat and retry
             continue
         if here.map_id == goal_map:
-            return navigate_to(
-                emulator, reader, wallmap, goal_cell,
+            return navigate_grid(
+                emulator, reader, goal_cell,
                 move_type_fn=move_type_fn, predict=predict,
             )
 
@@ -54,8 +52,8 @@ def travel_to(
         if crossing is None:
             return "unknown_route"   # door not yet discovered (mapping is deferred)
 
-        reached = navigate_to(
-            emulator, reader, wallmap, crossing.from_cell,
+        reached = navigate_grid(
+            emulator, reader, crossing.from_cell,
             move_type_fn=move_type_fn, predict=predict,
         )
         if reached in BATTLE_OUTCOMES:
@@ -69,8 +67,8 @@ def travel_to(
         # neighbour, which transitions on the first press (and records the portal).
         dx, dy = DELTAS[crossing.direction]
         neighbour = (crossing.from_cell[0] + dx, crossing.from_cell[1] + dy)
-        crossed = navigate_to(
-            emulator, reader, wallmap, neighbour, memory=memory,
+        crossed = navigate_grid(
+            emulator, reader, neighbour, memory=memory,
             move_type_fn=move_type_fn, predict=predict,
         )
         if crossed in BATTLE_OUTCOMES:

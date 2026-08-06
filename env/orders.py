@@ -61,7 +61,6 @@ def execute_order(
     emulator: Any,
     reader: Any,
     memory: Any,
-    wallmap: Any,
     max_hops: int = 20,
     move_type_fn: Any = None,
     predict: Any = None,
@@ -86,22 +85,22 @@ def execute_order(
     play_trainer_battle outcome ("won" | "lost" | "battle_timeout").
     """
     if order.mode == "heal":
-        return _execute_heal(emulator, reader, memory, wallmap, max_hops=max_hops)
+        return _execute_heal(emulator, reader, memory, max_hops=max_hops)
     if order.mode == "grind":
         return _execute_grind(
-            emulator, reader, memory, wallmap,
+            emulator, reader, memory,
             max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
         )
     if order.mode == "level_up":
         return _execute_level_up(
-            emulator, reader, memory, wallmap,
+            emulator, reader, memory,
             target_level=target_level, heal_threshold=heal_threshold,
             max_cycles=max_cycles, max_hops=max_hops,
             move_type_fn=move_type_fn, predict=predict,
         )
     if order.mode == "battle_trainer":
         return _execute_battle_trainer(
-            emulator, reader, memory, wallmap, order.destination,
+            emulator, reader, memory, order.destination,
             max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
         )
     dest = DESTINATIONS.get(order.destination)
@@ -109,7 +108,7 @@ def execute_order(
         return "unknown_destination"
     goal_map, goal_cell = dest
     return travel_to(
-        emulator, reader, memory, wallmap, goal_map, goal_cell,
+        emulator, reader, memory, goal_map, goal_cell,
         max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
     )
 
@@ -118,7 +117,6 @@ def _execute_heal(
     emulator: Any,
     reader: Any,
     memory: Any,
-    wallmap: Any,
     max_hops: int = 20,
 ) -> str:
     """Travel to a known healing spot, then press A until the party is full.
@@ -131,7 +129,7 @@ def _execute_heal(
         return "no_healing_spot_known"
     goal_map, goal_cell = spots[0]   # v1: the first known spot (nearest-choice is later)
     outcome = travel_to(
-        emulator, reader, memory, wallmap, goal_map, goal_cell, max_hops=max_hops
+        emulator, reader, memory, goal_map, goal_cell, max_hops=max_hops
     )
     if outcome != "arrived":
         return outcome               # pass-through: unknown_route/unreachable/lost/timeout
@@ -152,7 +150,6 @@ def _execute_grind(
     emulator: Any,
     reader: Any,
     memory: Any,
-    wallmap: Any,
     max_hops: int = 20,
     move_type_fn: Any = None,
     predict: Any = None,
@@ -169,7 +166,7 @@ def _execute_grind(
         return "no_grass_spot_known"
     goal_map, goal_cell = spots[0]   # v1: first known spot (nearest-choice is later)
     outcome = travel_to(
-        emulator, reader, memory, wallmap, goal_map, goal_cell, max_hops=max_hops
+        emulator, reader, memory, goal_map, goal_cell, max_hops=max_hops
     )
     if outcome != "arrived":
         return outcome               # pass-through: unknown_route/unreachable/lost/timeout
@@ -202,7 +199,6 @@ def _execute_level_up(
     emulator: Any,
     reader: Any,
     memory: Any,
-    wallmap: Any,
     target_level: int,
     heal_threshold: float = 0.4,
     max_cycles: int = 50,
@@ -226,13 +222,13 @@ def _execute_level_up(
         if reached(reader.party_levels(), target_level):
             return "leveled_up"
         result = _execute_grind(
-            emulator, reader, memory, wallmap,
+            emulator, reader, memory,
             max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
         )
         if result == "won":
             if party_needs_heal(reader.party_hp(), heal_threshold):
                 healed = _execute_heal(
-                    emulator, reader, memory, wallmap, max_hops=max_hops
+                    emulator, reader, memory, max_hops=max_hops
                 )
                 if healed != "healed":
                     return healed
@@ -247,7 +243,6 @@ def _execute_battle_trainer(
     emulator: Any,
     reader: Any,
     memory: Any,
-    wallmap: Any,
     destination: str,
     max_hops: int = 20,
     move_type_fn: Any = None,
@@ -272,7 +267,7 @@ def _execute_battle_trainer(
         return "unknown_destination"
     goal_map, goal_cell = dest
     outcome = travel_to(
-        emulator, reader, memory, wallmap, goal_map, goal_cell,
+        emulator, reader, memory, goal_map, goal_cell,
         max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
     )
     if outcome != "arrived":

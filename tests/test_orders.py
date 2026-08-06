@@ -4,10 +4,20 @@ from __future__ import annotations
 import dataclasses
 
 from emulator import buttons
-from env.local_navigator import WallMap
 from env.map_memory import MapMemory, WorldEvent
 from env.orders import DESTINATIONS, Order, execute_order
 from env.world_reader import WorldSnapshot
+
+
+class _AllFreeGridReader:
+    """Returns an all-FREE grid of given dimensions; satisfies navigate_grid."""
+
+    def __init__(self, w: int, h: int) -> None:
+        self._w, self._h = w, h
+
+    def grid(self):
+        from env.map_grid_reader import TileKind
+        return [[TileKind.FREE] * self._w for _ in range(self._h)]
 
 
 def test_order_is_a_frozen_dataclass_with_three_fields() -> None:
@@ -30,7 +40,7 @@ def test_destinations_registry_holds_known_places() -> None:
 
 def test_unknown_destination_returns_unknown_destination() -> None:
     order = Order(destination="atlantide", mode="advance", combat="win")
-    result = execute_order(order, None, None, MapMemory(), WallMap())
+    result = execute_order(order, None, None, MapMemory())
     assert result == "unknown_destination"
 
 
@@ -86,11 +96,15 @@ class NamedWorld:
         # No battle: EncounterWatcher stays quiet — no spurious grass learned.
         return False
 
+    @property
+    def grid_reader(self) -> _AllFreeGridReader:
+        return _AllFreeGridReader(50, 50)
+
 
 def test_advance_to_same_map_destination_arrives() -> None:
     world = NamedWorld(start_map=(0, 9), start_cell=(0, 10))
     order = Order(destination="littleroot", mode="advance", combat="win")
-    result = execute_order(order, world, world, MapMemory(), WallMap())
+    result = execute_order(order, world, world, MapMemory())
     assert result == "arrived"
     assert world.map_id == (0, 9)
     assert world.pos == (3, 10)
@@ -104,7 +118,7 @@ def test_advance_across_one_known_door_arrives() -> None:
         (0, 9), (2, 10), "right", (0, 16), reversible=True, to_cell=(0, 12)
     )
     order = Order(destination="route_101", mode="advance", combat="win")
-    result = execute_order(order, world, world, memory, WallMap())
+    result = execute_order(order, world, world, memory)
     assert result == "arrived"
     assert world.map_id == (0, 16)
     assert world.pos == (5, 12)
@@ -113,7 +127,7 @@ def test_advance_across_one_known_door_arrives() -> None:
 def test_advance_passes_through_unknown_route() -> None:
     world = NamedWorld(start_map=(0, 9), start_cell=(0, 10))
     order = Order(destination="route_101", mode="advance", combat="win")
-    result = execute_order(order, world, world, MapMemory(), WallMap())
+    result = execute_order(order, world, world, MapMemory())
     assert result == "unknown_route"
 
 
@@ -151,11 +165,15 @@ class HealWorld:
         # No battle: EncounterWatcher stays quiet — no spurious grass learned.
         return False
 
+    @property
+    def grid_reader(self) -> _AllFreeGridReader:
+        return _AllFreeGridReader(50, 50)
+
 
 def test_heal_without_known_spot_returns_no_healing_spot_known() -> None:
     world = HealWorld((0, 9), (3, 10))
     order = Order(destination="littleroot", mode="heal", combat="win")
-    result = execute_order(order, world, world, MapMemory(), WallMap())
+    result = execute_order(order, world, world, MapMemory())
     assert result == "no_healing_spot_known"
 
 
@@ -164,7 +182,7 @@ def test_heal_on_current_map_travels_and_heals() -> None:
     memory = MapMemory()
     memory.observe(WorldSnapshot((0, 9), (3, 10), None), WorldEvent(healed=True))
     order = Order(destination="littleroot", mode="heal", combat="win")
-    result = execute_order(order, world, world, memory, WallMap())
+    result = execute_order(order, world, world, memory)
     assert result == "healed"
 
 
@@ -173,7 +191,7 @@ def test_heal_that_never_refills_returns_heal_failed() -> None:
     memory = MapMemory()
     memory.observe(WorldSnapshot((0, 9), (3, 10), None), WorldEvent(healed=True))
     order = Order(destination="littleroot", mode="heal", combat="win")
-    result = execute_order(order, world, world, memory, WallMap())
+    result = execute_order(order, world, world, memory)
     assert result == "heal_failed"
 
 
@@ -183,7 +201,7 @@ def test_heal_ignores_the_order_destination() -> None:
     memory = MapMemory()
     memory.observe(WorldSnapshot((0, 9), (3, 10), None), WorldEvent(healed=True))
     order = Order(destination="not_a_registered_place", mode="heal", combat="win")
-    result = execute_order(order, world, world, memory, WallMap())
+    result = execute_order(order, world, world, memory)
     assert result == "healed"
 
 
@@ -219,11 +237,15 @@ class GrassWorld:
     def in_battle(self) -> bool:
         return self._steps >= self._to_enc
 
+    @property
+    def grid_reader(self) -> _AllFreeGridReader:
+        return _AllFreeGridReader(50, 50)
+
 
 def test_grind_without_known_grass_returns_no_grass_spot_known() -> None:
     world = GrassWorld((0, 16), (5, 12))
     order = Order(destination="route_101", mode="grind", combat="win")
-    result = execute_order(order, world, world, MapMemory(), WallMap())
+    result = execute_order(order, world, world, MapMemory())
     assert result == "no_grass_spot_known"
 
 
@@ -232,7 +254,7 @@ def test_grind_on_known_grass_starts_an_encounter() -> None:
     memory = MapMemory()
     memory.observe(WorldSnapshot((0, 16), (5, 12), None), WorldEvent(encounter_started=True))
     order = Order(destination="route_101", mode="grind", combat="win")
-    result = execute_order(order, world, world, memory, WallMap())
+    result = execute_order(order, world, world, memory)
     assert result == "encounter_started"
 
 
@@ -241,7 +263,7 @@ def test_grind_that_never_battles_returns_no_encounter() -> None:
     memory = MapMemory()
     memory.observe(WorldSnapshot((0, 16), (5, 12), None), WorldEvent(encounter_started=True))
     order = Order(destination="route_101", mode="grind", combat="win")
-    result = execute_order(order, world, world, memory, WallMap())
+    result = execute_order(order, world, world, memory)
     assert result == "no_encounter"
 
 
@@ -251,7 +273,7 @@ def test_grind_passes_through_travel_failure() -> None:
     memory = MapMemory()
     memory.observe(WorldSnapshot((0, 99), (1, 1), None), WorldEvent(encounter_started=True))
     order = Order(destination="route_101", mode="grind", combat="win")
-    result = execute_order(order, world, world, memory, WallMap())
+    result = execute_order(order, world, world, memory)
     assert result == "unknown_route"
 
 
@@ -260,7 +282,7 @@ def test_grind_ignores_the_order_destination() -> None:
     memory = MapMemory()
     memory.observe(WorldSnapshot((0, 16), (5, 12), None), WorldEvent(encounter_started=True))
     order = Order(destination="not_a_registered_place", mode="grind", combat="win")
-    result = execute_order(order, world, world, memory, WallMap())
+    result = execute_order(order, world, world, memory)
     assert result == "encounter_started"
 
 
@@ -324,6 +346,10 @@ class GrassBattleWorld:
     def in_battle(self) -> bool:
         return self._battle
 
+    @property
+    def grid_reader(self) -> _AllFreeGridReader:
+        return _AllFreeGridReader(50, 50)
+
     def read_bytes(self, addr: int, size: int) -> bytes:
         from env.game_state import (
             ACTION_MENU_VALUE,
@@ -366,7 +392,7 @@ def test_grind_with_fighter_wins_the_battle() -> None:
     memory.observe(WorldSnapshot((0, 16), (5, 12), None), WorldEvent(encounter_started=True))
     order = Order(destination="route_101", mode="grind", combat="win")
     result = execute_order(
-        order, world, world, memory, WallMap(),
+        order, world, world, memory,
         move_type_fn=lambda mid: 12, predict=lambda obs: 0,
     )
     assert result == "won"
@@ -377,7 +403,7 @@ def test_grind_without_fighter_deps_still_returns_encounter_started() -> None:
     memory = MapMemory()
     memory.observe(WorldSnapshot((0, 16), (5, 12), None), WorldEvent(encounter_started=True))
     order = Order(destination="route_101", mode="grind", combat="win")
-    result = execute_order(order, world, world, memory, WallMap())
+    result = execute_order(order, world, world, memory)
     assert result == "encounter_started"
 
 
@@ -510,6 +536,10 @@ class FarmWorld:
                 return bytes(buf[off : off + size])
         raise AssertionError(f"unexpected read at 0x{addr:08X}")
 
+    @property
+    def grid_reader(self) -> _AllFreeGridReader:
+        return _AllFreeGridReader(50, 50)
+
 
 def _farm_memory(*, with_healing_spot: bool = True) -> MapMemory:
     memory = MapMemory()
@@ -527,7 +557,7 @@ def test_level_up_reaches_target_after_several_battles() -> None:
     world = FarmWorld(start_level=7, target_hp_after=[(5, 5)])  # full: never heals
     order = Order(destination="route_101", mode="level_up", combat="win")
     result = execute_order(
-        order, world, world, _farm_memory(), WallMap(),
+        order, world, world, _farm_memory(),
         target_level=10, **_FIGHTER,
     )
     assert result == "leveled_up"
@@ -538,7 +568,7 @@ def test_level_up_already_at_target_fights_nothing() -> None:
     world = FarmWorld(start_level=10, target_hp_after=[(5, 5)])
     order = Order(destination="route_101", mode="level_up", combat="win")
     result = execute_order(
-        order, world, world, _farm_memory(), WallMap(),
+        order, world, world, _farm_memory(),
         target_level=10, **_FIGHTER,
     )
     assert result == "leveled_up"
@@ -550,7 +580,7 @@ def test_level_up_detours_to_heal_when_hp_is_low() -> None:
     world = FarmWorld(start_level=9, target_hp_after=[(1, 5)])
     order = Order(destination="route_101", mode="level_up", combat="win")
     result = execute_order(
-        order, world, world, _farm_memory(), WallMap(),
+        order, world, world, _farm_memory(),
         target_level=10, **_FIGHTER,
     )
     assert result == "leveled_up"
@@ -564,7 +594,7 @@ def test_level_up_heals_on_ko_even_when_totals_are_fine() -> None:
     world = FarmWorld(start_level=9, target_hp_after=[(0, 5), (5, 5)], party_size=2)
     order = Order(destination="route_101", mode="level_up", combat="win")
     result = execute_order(
-        order, world, world, _farm_memory(), WallMap(),
+        order, world, world, _farm_memory(),
         target_level=10, heal_threshold=0.4, **_FIGHTER,
     )
     assert result == "leveled_up"
@@ -575,7 +605,7 @@ def test_level_up_aborts_when_heal_needed_but_no_spot_known() -> None:
     world = FarmWorld(start_level=1, target_hp_after=[(1, 5)])
     order = Order(destination="route_101", mode="level_up", combat="win")
     result = execute_order(
-        order, world, world, _farm_memory(with_healing_spot=False), WallMap(),
+        order, world, world, _farm_memory(with_healing_spot=False),
         target_level=10, **_FIGHTER,
     )
     assert result == "no_healing_spot_known"
@@ -585,7 +615,7 @@ def test_level_up_exhausts_budget_without_reaching_target() -> None:
     world = FarmWorld(start_level=5, target_hp_after=[(5, 5)])  # full: never heals
     order = Order(destination="route_101", mode="level_up", combat="win")
     result = execute_order(
-        order, world, world, _farm_memory(), WallMap(),
+        order, world, world, _farm_memory(),
         target_level=20, max_cycles=2, **_FIGHTER,
     )
     assert result == "grind_exhausted"
@@ -596,7 +626,7 @@ def test_level_up_aborts_on_a_lost_battle() -> None:
     world = FarmWorld(start_level=5, target_hp_after=[(5, 5)], can_win=False)
     order = Order(destination="route_101", mode="level_up", combat="win")
     result = execute_order(
-        order, world, world, _farm_memory(), WallMap(),
+        order, world, world, _farm_memory(),
         target_level=10, **_FIGHTER,
     )
     assert result == "lost"
@@ -701,13 +731,17 @@ class AdvanceBattleWorld:
                 return bytes(buf[off : off + size])
         raise AssertionError(f"unexpected read at 0x{addr:08X}")
 
+    @property
+    def grid_reader(self) -> _AllFreeGridReader:
+        return _AllFreeGridReader(50, 50)
+
 
 def test_advance_wins_a_grass_battle_and_arrives() -> None:
     # route_101 destination is ((0,16),(5,12)); start one grass cell short.
     world = AdvanceBattleWorld(map_id=(0, 16), start=(3, 12), grass_at=(4, 12))
     order = Order(destination="route_101", mode="advance", combat="win")
     result = execute_order(
-        order, world, world, MapMemory(), WallMap(),
+        order, world, world, MapMemory(),
         move_type_fn=lambda mid: 12, predict=lambda obs: 0,
     )
     assert result == "arrived"
@@ -717,7 +751,7 @@ def test_advance_wins_a_grass_battle_and_arrives() -> None:
 def test_advance_without_fighter_reports_battle_interrupted() -> None:
     world = AdvanceBattleWorld(map_id=(0, 16), start=(3, 12), grass_at=(4, 12))
     order = Order(destination="route_101", mode="advance", combat="win")
-    result = execute_order(order, world, world, MapMemory(), WallMap())
+    result = execute_order(order, world, world, MapMemory())
     assert result == "battle_interrupted"
 
 
@@ -735,7 +769,7 @@ def test_battle_trainer_wins_at_the_destination() -> None:
     world = GrassBattleWorld(map_id, cell, steps_to_encounter=3)
     order = Order(destination="route_103", mode="battle_trainer", combat="win")
     result = execute_order(
-        order, world, world, MapMemory(), WallMap(),
+        order, world, world, MapMemory(),
         move_type_fn=lambda mid: 12, predict=lambda obs: 0,
     )
     assert result == "won"
@@ -745,7 +779,7 @@ def test_battle_trainer_without_fighter_reports_encounter_started() -> None:
     map_id, cell = DESTINATIONS["route_103"]
     world = GrassBattleWorld(map_id, cell, steps_to_encounter=3)
     order = Order(destination="route_103", mode="battle_trainer", combat="win")
-    result = execute_order(order, world, world, MapMemory(), WallMap())
+    result = execute_order(order, world, world, MapMemory())
     assert result == "encounter_started"
 
 
@@ -754,7 +788,7 @@ def test_battle_trainer_without_a_trainer_returns_no_trainer() -> None:
     world = GrassBattleWorld(map_id, cell, steps_to_encounter=10_000)
     order = Order(destination="route_103", mode="battle_trainer", combat="win")
     result = execute_order(
-        order, world, world, MapMemory(), WallMap(),
+        order, world, world, MapMemory(),
         move_type_fn=lambda mid: 12, predict=lambda obs: 0,
     )
     assert result == "no_trainer"
@@ -762,12 +796,12 @@ def test_battle_trainer_without_a_trainer_returns_no_trainer() -> None:
 
 def test_battle_trainer_unknown_destination() -> None:
     order = Order(destination="atlantide", mode="battle_trainer", combat="win")
-    result = execute_order(order, None, None, MapMemory(), WallMap())
+    result = execute_order(order, None, None, MapMemory())
     assert result == "unknown_destination"
 
 
 def test_battle_trainer_passes_through_travel_failure() -> None:
     world = NamedWorld(start_map=(0, 9), start_cell=(0, 10))
     order = Order(destination="route_103", mode="battle_trainer", combat="win")
-    result = execute_order(order, world, world, MapMemory(), WallMap())
+    result = execute_order(order, world, world, MapMemory())
     assert result == "unknown_route"

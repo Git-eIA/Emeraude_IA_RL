@@ -15,7 +15,6 @@ _STATE = Path(__file__).resolve().parents[2] / "Emu" / "states" / "initial.state
 @pytest.mark.skipif(not ROM, reason="POKEMON_EMERALD_ROM not set")
 def test_travel_same_map_arrives_on_real_rom() -> None:
     from emulator.gba import GbaEmulator
-    from env.local_navigator import WallMap
     from env.map_memory import MapMemory
     from env.map_traveler import travel_to
     from env.world_reader import WorldReader
@@ -27,10 +26,10 @@ def test_travel_same_map_arrives_on_real_rom() -> None:
     assert snap is not None
 
     # Same-map travel to the current cell must arrive immediately (delegates to
-    # navigate_to, which returns "arrived" when pos == target). This exercises
+    # navigate_grid, which returns "arrived" when pos == target). This exercises
     # the plan_route([here]) + map_id == goal_map branch on the real emulator.
     result = travel_to(
-        emu, reader, MapMemory(), WallMap(),
+        emu, reader, MapMemory(),
         goal_map=snap.map_id, goal_cell=snap.pos,
     )
     assert result == "arrived"
