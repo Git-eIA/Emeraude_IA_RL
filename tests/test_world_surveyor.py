@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 from emulator import buttons
-from env.local_navigator import DELTAS, OPPOSITE
+from env.grid_navigator import DELTAS
 from env.map_memory import MapMemory
 from env.world_reader import WorldSnapshot
 from env.world_surveyor import SurveyReport, survey_world
+
+OPPOSITE: dict[str, str] = {"up": "down", "down": "up", "left": "right", "right": "left"}
 
 
 class _AllFreeGridReader:
