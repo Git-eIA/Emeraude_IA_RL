@@ -13,9 +13,15 @@ key constants); grid_explorer reuses them. Emerald (BPEF) only.
 from __future__ import annotations
 
 import heapq
+from typing import Any
 
+from emulator import buttons
+from env.battle_player import play_battle
+from env.encounter_detector import EncounterWatcher
 from env.grid_snapshot import GridSnapshot
+from env.heal_detector import HealWatcher
 from env.map_grid_reader import TileKind
+from env.map_memory import MapMemory, WorldEvent
 
 DIRECTIONS: tuple[str, ...] = ("up", "down", "left", "right")
 
@@ -115,3 +121,137 @@ def _reconstruct(
         cell = prev
     directions.reverse()
     return directions
+
+
+_DIRECTION_KEYS: dict[str, int] = {
+    "up": buttons.KEY_UP,
+    "down": buttons.KEY_DOWN,
+    "left": buttons.KEY_LEFT,
+    "right": buttons.KEY_RIGHT,
+}
+
+STEP_FRAMES = 24      # hold a d-pad key ~0.4 s: one walking tile
+RELEASE_FRAMES = 8    # idle after each press so the GBA doesn't fuse presses
+TURN_RETRIES = 2      # a first press may only turn; retry to tell turn from wall
+SETTLE_TRIES = 4      # re-read snapshot to skip SaveBlock None frames
+
+
+def snapshot_settled(reader: Any) -> Any:
+    """Read a snapshot, skipping up to SETTLE_TRIES None frames during relocation."""
+    snap = None
+    for _ in range(SETTLE_TRIES):
+        snap = reader.snapshot()
+        if snap is not None:
+            return snap
+    return snap
+
+
+def resolve_move(before: Any, after: Any) -> str:
+    """Classify one attempted step: 'moved' | 'blocked' | 'transition'."""
+    if before.map_id != after.map_id:
+        return "transition"
+    if before.pos != after.pos:
+        return "moved"
+    return "blocked"
+
+
+def handle_battle_interruption(
+    emulator: Any, reader: Any, move_type_fn: Any, predict: Any
+) -> str | None:
+    """If a wild battle is in progress, hand it to the Fighter and report.
+
+    None when there is no battle (or it was won) so the caller resumes; a
+    terminal outcome otherwise: "battle_interrupted" (no Fighter), "battle_lost",
+    "battle_timeout".
+    """
+    if not reader.in_battle():
+        return None
+    if move_type_fn is None or predict is None:
+        return "battle_interrupted"
+    result = play_battle(emulator, move_type_fn, predict)
+    if result == "won":
+        return None
+    return "battle_lost" if result == "lost" else "battle_timeout"
+
+
+def probe_step(emulator: Any, reader: Any, before: Any, direction: str) -> str:
+    """Press `direction`, retrying so a first-press turn isn't read as a wall."""
+    outcome = "blocked"
+    for _ in range(TURN_RETRIES):
+        emulator.step(_DIRECTION_KEYS[direction], STEP_FRAMES)
+        emulator.step(0, RELEASE_FRAMES)
+        after = snapshot_settled(reader)
+        if after is None:
+            return "blocked"
+        outcome = resolve_move(before, after)
+        if outcome != "blocked":
+            return outcome
+    return outcome
+
+
+def navigate_grid(
+    emulator: Any,
+    reader: Any,
+    target: tuple[int, int],
+    max_steps: int = 200,
+    memory: MapMemory | None = None,
+    move_type_fn: Any = None,
+    predict: Any = None,
+) -> str:
+    """Walk the player to `target` on its current map, planning over the RAM grid.
+
+    Zero false walls, one-way ledges respected by construction. A per-run
+    transient-block set catches a planned press that fails to move (a live NPC on
+    a static-grid FREE tile) and reroutes; it is per-call only, never persisted.
+    When `memory` is given, the live grid is remembered, a border crossing is
+    recorded as a portal, a heal tags a healing spot, and a battle tags has_grass.
+
+    Returns 'arrived' | 'unreachable' | 'left_map' | 'timeout' | 'battle_lost' |
+    'battle_timeout' | 'battle_interrupted'.
+    """
+    heal_watcher = HealWatcher()
+    enc_watcher = EncounterWatcher()
+    blocked: set[tuple[tuple[int, int], str]] = set()
+
+    for _ in range(max_steps):
+        before = snapshot_settled(reader)
+        if before is None:
+            emulator.step(0, RELEASE_FRAMES)   # relocating; idle and retry
+            continue
+        if memory is not None:
+            if heal_watcher.observe(reader.party_hp()):
+                memory.observe(before, WorldEvent(healed=True))
+            if enc_watcher.observe(reader.in_battle()):
+                memory.observe(before, WorldEvent(encounter_started=True))
+        interruption = handle_battle_interruption(
+            emulator, reader, move_type_fn, predict
+        )
+        if interruption is not None:
+            return interruption
+        if before.pos == target:
+            return "arrived"
+
+        snap = GridSnapshot.from_reader(reader.grid_reader, before.map_id)
+        if snap is None:
+            emulator.step(0, RELEASE_FRAMES)   # map not ready; idle and retry
+            continue
+        if memory is not None:
+            memory.remember_grid(snap)
+
+        path = plan_path_grid(snap, before.pos, target, blocked=blocked)
+        if path is None:
+            return "unreachable"
+        direction = path[0]
+        outcome = probe_step(emulator, reader, before, direction)
+        if outcome == "transition":
+            if memory is not None:
+                landed = snapshot_settled(reader)
+                if landed is not None:
+                    memory.record_portal(
+                        before.map_id, before.pos, direction, landed.map_id,
+                        False, landed.pos,
+                    )
+            return "left_map"
+        if outcome == "blocked":
+            blocked.add((before.pos, direction))   # transient: NPC / surprise
+    return "timeout"

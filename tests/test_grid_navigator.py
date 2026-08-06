@@ -3,6 +3,8 @@ from __future__ import annotations
 from env.grid_navigator import plan_path_grid
 from env.grid_snapshot import GridSnapshot
 from env.map_grid_reader import TileKind
+from env.map_grid_reader import TileKind as _TK
+from env.world_reader import WorldSnapshot
 
 F = TileKind.FREE
 W = TileKind.WALL
@@ -130,3 +132,123 @@ def _cells_on(snap, start, path):
         cell = _step(snap, cell, d)
         out.append(cell)
     return out
+
+
+class _FakeGridReader:
+    """Serves a fixed classified grid regardless of the loaded map."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def grid(self):
+        return [list(r) for r in self._rows]
+
+
+class _LedgeWorld:
+    """Emulator + reader double. The player walks a small grid; a LEDGE_DOWN at
+    (0,1) may be descended (down from (0,0) lands (0,2)) but never climbed.
+
+    Each 'down'/'up'/... press updates pos per the 2-tile jump model; a press
+    into a WALL leaves pos unchanged (a 'blocked' outcome).
+    """
+
+    def __init__(self, rows, start):
+        self._rows = rows
+        self._pos = start
+        self._grid = _FakeGridReader(rows)
+        self._blocked_npc: set[tuple[tuple[int, int], str]] = set()
+
+    # --- reader surface ---
+    def snapshot(self):
+        return WorldSnapshot(map_id=(0, 16), pos=self._pos, tile_behavior=0)
+
+    def in_battle(self):
+        return False
+
+    def party_hp(self):
+        return [(20, 20)]
+
+    @property
+    def grid_reader(self):
+        return self._grid
+
+    # --- emulator surface ---
+    def step(self, key, _frames):
+        from emulator import buttons
+
+        keymap = {
+            buttons.KEY_UP: "up",
+            buttons.KEY_DOWN: "down",
+            buttons.KEY_LEFT: "left",
+            buttons.KEY_RIGHT: "right",
+        }
+        d = keymap.get(key)
+        if d is None:
+            return
+        self._pos = self._resolve(self._pos, d)
+
+    def _classify(self, x, y):
+        if 0 <= y < len(self._rows) and 0 <= x < len(self._rows[0]):
+            return self._rows[y][x]
+        return _TK.WALL
+
+    def _resolve(self, cell, d):
+        if (cell, d) in self._blocked_npc:
+            return cell  # a phantom NPC stands here: press does not move
+        delta = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}[d]
+        ledge = {
+            "up": _TK.LEDGE_UP,
+            "down": _TK.LEDGE_DOWN,
+            "left": _TK.LEDGE_LEFT,
+            "right": _TK.LEDGE_RIGHT,
+        }[d]
+        adj = (cell[0] + delta[0], cell[1] + delta[1])
+        kind = self._classify(*adj)
+        if kind in (_TK.FREE, _TK.GRASS):
+            return adj
+        if kind is ledge:
+            land = (cell[0] + 2 * delta[0], cell[1] + 2 * delta[1])
+            if self._classify(*land) in (_TK.FREE, _TK.GRASS):
+                return land
+        return cell  # wall / wrong-arrow ledge: no move
+
+
+def test_navigate_grid_descends_a_ledge_in_the_correct_direction():
+    from env.grid_navigator import navigate_grid
+
+    rows = [
+        [_TK.FREE],
+        [_TK.LEDGE_DOWN],
+        [_TK.FREE],
+    ]
+    world = _LedgeWorld(rows, start=(0, 0))
+    assert navigate_grid(world, world, target=(0, 2)) == "arrived"
+    assert world._pos == (0, 2)
+
+
+def test_navigate_grid_refuses_to_climb_a_one_way_ledge():
+    from env.grid_navigator import navigate_grid
+
+    rows = [
+        [_TK.FREE],
+        [_TK.LEDGE_DOWN],
+        [_TK.FREE],
+    ]
+    world = _LedgeWorld(rows, start=(0, 2))
+    # climbing back up is impossible: no path -> unreachable, no hang.
+    assert navigate_grid(world, world, target=(0, 0)) == "unreachable"
+
+
+def test_navigate_grid_detours_around_a_phantom_npc():
+    from env.grid_navigator import navigate_grid
+
+    # open 3x2 grid; an NPC blocks the direct (0,0)->right press. navigate_grid
+    # must add that edge to its transient set and reroute down/right/up.
+    rows = [
+        [_TK.FREE, _TK.FREE, _TK.FREE],
+        [_TK.FREE, _TK.FREE, _TK.FREE],
+    ]
+    world = _LedgeWorld(rows, start=(0, 0))
+    world._blocked_npc.add(((0, 0), "right"))
+    assert navigate_grid(world, world, target=(1, 0)) == "arrived"
+    assert world._pos == (1, 0)
