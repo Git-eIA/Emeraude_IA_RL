@@ -9,7 +9,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from typing import TYPE_CHECKING
+
 from env.world_reader import WorldSnapshot
+
+if TYPE_CHECKING:
+    from env.grid_snapshot import GridSnapshot
 
 # Small, game-specific catalog: known map ids -> a priori place type. The one
 # place that would change for another game. Grows as we identify more maps.
@@ -55,6 +60,8 @@ class MapMemory:
         ] = {}
         # recognition label -> {map_id: cell} (last-write-wins per map).
         self._labeled_cells: dict[str, dict[tuple[int, int], tuple[int, int]]] = {}
+        # map_id -> remembered classified grid (last-write-wins).
+        self._grids: dict[tuple[int, int], "GridSnapshot"] = {}
 
     def observe(self, snapshot: WorldSnapshot, event: WorldEvent) -> None:
         node = self._ensure_node(snapshot.map_id)
@@ -111,6 +118,14 @@ class MapMemory:
     def healing_spots(self) -> list[tuple[tuple[int, int], tuple[int, int]]]:
         """Known healing locations as (map_id, cell); shortcut for cells_labeled('healing_spot')."""
         return self.cells_labeled("healing_spot")
+
+    def remember_grid(self, snap: "GridSnapshot") -> None:
+        """Store the snapshot keyed by its map_id; last-write-wins."""
+        self._grids[snap.map_id] = snap
+
+    def grid_for(self, map_id: tuple[int, int]) -> "GridSnapshot | None":
+        """Return the remembered grid for map_id, or None if never seen."""
+        return self._grids.get(map_id)
 
     def node(self, map_id: tuple[int, int]) -> PlaceNode | None:
         return self.nodes.get(map_id)

@@ -210,3 +210,28 @@ def test_grass_and_healing_labels_do_not_cross_contaminate() -> None:
     memory.observe(WorldSnapshot((0, 16), (5, 12), None), WorldEvent(encounter_started=True))
     assert memory.cells_labeled("healing_spot") == [((0, 9), (3, 10))]
     assert memory.cells_labeled("has_grass") == [((0, 16), (5, 12))]
+
+
+def test_remember_grid_then_grid_for_returns_it():
+    from env.grid_snapshot import GridSnapshot
+    from env.map_grid_reader import TileKind
+
+    mem = MapMemory()
+    snap = GridSnapshot(
+        map_id=(0, 16), width=1, height=1, tiles=((TileKind.FREE,),)
+    )
+    assert mem.grid_for((0, 16)) is None
+    mem.remember_grid(snap)
+    assert mem.grid_for((0, 16)) is snap
+
+
+def test_remember_grid_is_last_write_wins_per_map():
+    from env.grid_snapshot import GridSnapshot
+    from env.map_grid_reader import TileKind
+
+    mem = MapMemory()
+    first = GridSnapshot((0, 16), 1, 1, ((TileKind.FREE,),))
+    second = GridSnapshot((0, 16), 1, 1, ((TileKind.WALL,),))
+    mem.remember_grid(first)
+    mem.remember_grid(second)
+    assert mem.grid_for((0, 16)) is second
