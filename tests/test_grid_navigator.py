@@ -252,3 +252,17 @@ def test_navigate_grid_detours_around_a_phantom_npc():
     world._blocked_npc.add(((0, 0), "right"))
     assert navigate_grid(world, world, target=(1, 0)) == "arrived"
     assert world._pos == (1, 0)
+
+
+def test_navigate_grid_gives_up_on_a_blocked_off_map_border():
+    from env.grid_navigator import navigate_grid
+
+    # Target (2,0) is off the 2x1 grid and exactly one step right of the player.
+    # The OOB fallback presses right, but the border does not cross (no map
+    # change) so the press is 'blocked'. The edge lands in the transient set;
+    # a second OOB attempt would repeat the dead press until max_steps, so the
+    # navigator must report 'unreachable' immediately instead of hanging.
+    rows = [[_TK.FREE, _TK.FREE]]
+    world = _LedgeWorld(rows, start=(1, 0))
+    assert navigate_grid(world, world, target=(2, 0), max_steps=50) == "unreachable"
+    assert world._pos == (1, 0)

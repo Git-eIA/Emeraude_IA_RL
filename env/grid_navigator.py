@@ -257,7 +257,10 @@ def navigate_grid(
             tx, ty = target
             target_oob = not (0 <= tx < snap.width and 0 <= ty < snap.height)
             adj_dir = _adjacent_direction(before.pos, target) if target_oob else None
-            if adj_dir is None:
+            # If the OOB press already failed once (NPC on the border tile, wrong
+            # facing), it is in `blocked`: a second attempt would only repeat the
+            # dead press until max_steps. Treat a blocked OOB edge as unreachable.
+            if adj_dir is None or (before.pos, adj_dir) in blocked:
                 return "unreachable"
             direction = adj_dir
         else:
