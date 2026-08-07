@@ -42,13 +42,21 @@ def test_explore_grid_survives_a_real_route101_battle() -> None:
     def predict(obs) -> int:
         return int(fighter.predict(obs, deterministic=True)[0])
 
+    # max_steps=1 isolates the loaded mid-battle: explore_grid's first loop
+    # iteration hands the in-progress battle to the Fighter, wins it, resumes
+    # the survey for one candidate, then stops. Keeping the budget at 1 avoids
+    # wandering deeper into route_101's grass where a *later* wild battle could
+    # be lost to team attrition (RNG) — that would be a Fighter/team outcome,
+    # not a failure of explore_grid to survive the mid-battle start this test
+    # exists to prove.
     result = explore_grid(
         env.emulator, reader, MapMemory(), ROUTE_101,
-        max_steps=300,
+        max_steps=1,
         move_type_fn=make_move_type_fn(env.emulator), predict=predict,
     )
 
-    # The Fighter won and the survey resumed: not a battle outcome, and the
-    # battle is actually resolved (assertion above is not vacuous).
+    # The Fighter won the loaded battle and the survey resumed: not a battle
+    # outcome, and the battle is actually resolved (assertion above is not
+    # vacuous).
     assert result not in BATTLE_OUTCOMES
     assert not reader.in_battle()
