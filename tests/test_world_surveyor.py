@@ -2,10 +2,21 @@
 from __future__ import annotations
 
 from emulator import buttons
-from env.local_navigator import DELTAS, OPPOSITE, WallMap
+from env.grid_navigator import DELTAS
 from env.map_memory import MapMemory
 from env.world_reader import WorldSnapshot
 from env.world_surveyor import SurveyReport, survey_world
+
+OPPOSITE: dict[str, str] = {"up": "down", "down": "up", "left": "right", "right": "left"}
+
+
+class _AllFreeGridReader:
+    def __init__(self, w: int, h: int) -> None:
+        self._w, self._h = w, h
+
+    def grid(self):
+        from env.map_grid_reader import TileKind
+        return [[TileKind.FREE] * self._w for _ in range(self._h)]
 
 _KEY_TO_DIR = {
     buttons.KEY_UP: "up",
@@ -62,6 +73,18 @@ class WorldGrid:
         # No battle: EncounterWatcher stays quiet — no spurious grass learned.
         return False
 
+    @property
+    def grid_reader(self) -> _AllFreeGridReader:
+        # Derive exact room dimensions from the boundary walls for this map.
+        # Wall entries: (map_id, cell, direction). Max cell coords + 1 = size.
+        cells = [cell for (mid, cell, _) in self._walls if mid == self.map_id]
+        if cells:
+            w = max(x for x, _ in cells) + 1
+            h = max(y for _, y in cells) + 1
+        else:
+            w, h = 1, 1
+        return _AllFreeGridReader(w, h)
+
 
 def _sealed_room(
     map_id: tuple[int, int], width: int, height: int
@@ -103,10 +126,14 @@ class _BlindReader:
     def step(self, keys: int, frames: int) -> None:  # emulator half, unused
         return None
 
+    @property
+    def grid_reader(self) -> _AllFreeGridReader:
+        return _AllFreeGridReader(1, 1)
+
 
 def test_no_start_returns_no_start_failure() -> None:
     reader = _BlindReader()
-    report = survey_world(reader, reader, MapMemory(), WallMap(), max_maps=10)
+    report = survey_world(reader, reader, MapMemory(), max_maps=10)
 
     assert report.surveyed == ()
     assert len(report.failed) == 1
@@ -123,7 +150,7 @@ def test_two_maps_linked_by_reversible_border() -> None:
     borders = _reversible_border(a, (1, 0), "right", b, (0, 0))
     world = WorldGrid(start_map=a, start_cell=(0, 0), walls=walls, borders=borders)
 
-    report = survey_world(world, world, MapMemory(), WallMap(), max_maps=10)
+    report = survey_world(world, world, MapMemory(), max_maps=10)
 
     assert isinstance(report, SurveyReport)
     assert set(report.surveyed) == {a, b}
@@ -149,7 +176,7 @@ def test_chain_of_three_maps_surveyed_in_bfs_order() -> None:
     }
     world = WorldGrid(start_map=a, start_cell=(0, 0), walls=walls, borders=borders)
 
-    report = survey_world(world, world, MapMemory(), WallMap(), max_maps=10)
+    report = survey_world(world, world, MapMemory(), max_maps=10)
 
     assert report.surveyed == (a, b, c)
     assert report.failed == ()
@@ -164,7 +191,7 @@ def test_warp_only_map_is_logged_left_map_and_target_never_enqueued() -> None:
     borders = _one_way_border(a, (0, 0), "down", h, (0, 0))  # warp wins over the wall
     world = WorldGrid(start_map=a, start_cell=(0, 0), walls=walls, borders=borders)
 
-    report = survey_world(world, world, MapMemory(), WallMap(), max_maps=10)
+    report = survey_world(world, world, MapMemory(), max_maps=10)
 
     assert report.surveyed == (a,)                 # A surveyed despite the early exit
     assert (a, "map:left_map") in report.failed    # map-side failure logged
@@ -181,7 +208,7 @@ def test_max_maps_stops_cleanly_with_partial_report() -> None:
     }
     world = WorldGrid(start_map=a, start_cell=(0, 0), walls=walls, borders=borders)
 
-    report = survey_world(world, world, MapMemory(), WallMap(), max_maps=1)
+    report = survey_world(world, world, MapMemory(), max_maps=1)
 
     assert report.surveyed == (a,)        # exactly one map surveyed then stopped
 
@@ -279,7 +306,7 @@ def test_map_battle_without_a_fighter_aborts_the_sweep() -> None:
     walls = _sealed_room(a, 1, 1)  # single-cell sealed room
     world = BattleWorldGrid(start_map=a, start_cell=(0, 0), walls=walls, borders={})
 
-    report = survey_world(world, world, MapMemory(), WallMap(), max_maps=10)
+    report = survey_world(world, world, MapMemory(), max_maps=10)
 
     # No Fighter: map_map(a) returns battle_interrupted -> sweep aborts before
     # a is counted surveyed, logging the leg.
@@ -293,7 +320,7 @@ def test_fighter_win_lets_the_sweep_complete_the_map() -> None:
     world = BattleWorldGrid(start_map=a, start_cell=(0, 0), walls=walls, borders={})
 
     report = survey_world(
-        world, world, MapMemory(), WallMap(), max_maps=10,
+        world, world, MapMemory(), max_maps=10,
         move_type_fn=lambda mid: 12, predict=lambda obs: 0,
     )
 

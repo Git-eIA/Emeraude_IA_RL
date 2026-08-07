@@ -35,7 +35,7 @@ class RecordingOrderFn:
         self.calls: list[tuple[str, str, int | None]] = []
         self.kwargs: list[dict] = []
 
-    def __call__(self, order: Order, emulator, reader, memory, wallmap, **kwargs):
+    def __call__(self, order: Order, emulator, reader, memory, **kwargs):
         self.calls.append((order.mode, order.destination, kwargs.get("target_level")))
         self.kwargs.append(kwargs)
         return self._outcomes.pop(0)
@@ -45,7 +45,7 @@ def test_under_leveled_milestone_emits_level_up_then_advance():
     reader = FakeReader([3])  # mean level 3 < target 5
     fn = RecordingOrderFn(["leveled_up", "arrived"])
     result = run_campaign(
-        None, reader, None, None,
+        None, reader, None,
         curriculum=(Milestone("route_101", 5),),
         order_fn=fn,
     )
@@ -60,7 +60,7 @@ def test_over_leveled_milestone_skips_level_up():
     reader = FakeReader([8])  # mean level 8 >= target 5
     fn = RecordingOrderFn(["arrived"])
     result = run_campaign(
-        None, reader, None, None,
+        None, reader, None,
         curriculum=(Milestone("route_101", 5),),
         order_fn=fn,
     )
@@ -72,7 +72,7 @@ def test_multiple_milestones_run_in_order():
     reader = FakeReader([9])  # over-leveled for both -> advance-only each
     fn = RecordingOrderFn(["arrived", "arrived"])
     result = run_campaign(
-        None, reader, None, None,
+        None, reader, None,
         curriculum=(Milestone("route_101", 5), Milestone("littleroot", 5)),
         order_fn=fn,
     )
@@ -87,7 +87,7 @@ def test_level_up_failure_aborts_without_advancing():
     reader = FakeReader([3])  # under-leveled -> level_up first
     fn = RecordingOrderFn(["lost"])
     result = run_campaign(
-        None, reader, None, None,
+        None, reader, None,
         curriculum=(Milestone("route_101", 5),),
         order_fn=fn,
     )
@@ -99,7 +99,7 @@ def test_advance_failure_aborts_and_surfaces_outcome():
     reader = FakeReader([8])  # over-leveled -> straight to advance
     fn = RecordingOrderFn(["unknown_route"])
     result = run_campaign(
-        None, reader, None, None,
+        None, reader, None,
         curriculum=(Milestone("route_101", 5),),
         order_fn=fn,
     )
@@ -121,7 +121,7 @@ def test_trainer_milestone_advances_then_battles():
     reader = FakeReader([8])  # over-leveled -> straight to advance
     fn = RecordingOrderFn(["arrived", "won"])
     result = run_campaign(
-        None, reader, None, None,
+        None, reader, None,
         curriculum=(Milestone("route_103", 5, trainer=True),),
         order_fn=fn,
     )
@@ -136,7 +136,7 @@ def test_trainer_battle_failure_aborts_after_advance():
     reader = FakeReader([8])
     fn = RecordingOrderFn(["arrived", "lost"])
     result = run_campaign(
-        None, reader, None, None,
+        None, reader, None,
         curriculum=(Milestone("route_103", 5, trainer=True),),
         order_fn=fn,
     )
@@ -154,7 +154,7 @@ def test_advance_threads_the_fighter():
     fn = RecordingOrderFn(["arrived"])
     move_type_fn, predict = object(), object()
     run_campaign(
-        None, reader, None, None,
+        None, reader, None,
         curriculum=(Milestone("route_101", 5),),
         order_fn=fn, move_type_fn=move_type_fn, predict=predict,
     )
@@ -167,7 +167,7 @@ def test_non_trainer_milestone_does_not_battle():
     reader = FakeReader([8])
     fn = RecordingOrderFn(["arrived"])
     result = run_campaign(
-        None, reader, None, None,
+        None, reader, None,
         curriculum=(Milestone("route_101", 5),),  # trainer defaults False
         order_fn=fn,
     )

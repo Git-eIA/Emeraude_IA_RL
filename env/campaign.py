@@ -39,7 +39,6 @@ def run_campaign(
     emulator: Any,
     reader: Any,
     memory: Any,
-    wallmap: Any,
     curriculum: tuple[Milestone, ...] = CAMPAIGN,
     max_hops: int = 20,
     move_type_fn: Any = None,
@@ -60,7 +59,7 @@ def run_campaign(
         if not reached(reader.party_levels(), milestone.target_level):
             leveled = order_fn(
                 Order(milestone.destination, "level_up", "win"),
-                emulator, reader, memory, wallmap,
+                emulator, reader, memory,
                 max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
                 target_level=milestone.target_level, heal_threshold=heal_threshold,
                 max_cycles=max_cycles,
@@ -69,7 +68,7 @@ def run_campaign(
                 return leveled
         advanced = order_fn(
             Order(milestone.destination, "advance", "win"),
-            emulator, reader, memory, wallmap,
+            emulator, reader, memory,
             max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
         )
         if advanced != "arrived":
@@ -77,7 +76,7 @@ def run_campaign(
         if milestone.trainer:
             fought = order_fn(
                 Order(milestone.destination, "battle_trainer", "win"),
-                emulator, reader, memory, wallmap,
+                emulator, reader, memory,
                 max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
             )
             if fought != "won":

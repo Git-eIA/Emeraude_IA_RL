@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from emulator import buttons
-from env.local_navigator import DIRECTIONS, WallMap
+from env.grid_navigator import DIRECTIONS
 from env.map_memory import MapMemory, WorldEvent
 from env.map_traveler import travel_to
 from env.world_reader import WorldSnapshot
@@ -16,6 +16,17 @@ _KEY_TO_DIR: dict[int, str] = {
 _DELTAS: dict[str, tuple[int, int]] = {
     "up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0),
 }
+
+
+class _AllFreeGridReader:
+    """Returns an all-FREE grid of given dimensions; satisfies navigate_grid."""
+
+    def __init__(self, w: int, h: int) -> None:
+        self._w, self._h = w, h
+
+    def grid(self):
+        from env.map_grid_reader import TileKind
+        return [[TileKind.FREE] * self._w for _ in range(self._h)]
 
 
 class MultiMapWorld:
@@ -65,11 +76,16 @@ class MultiMapWorld:
         # No battle: EncounterWatcher stays quiet — no spurious grass learned.
         return False
 
+    @property
+    def grid_reader(self) -> _AllFreeGridReader:
+        # navigate_grid uses a 50x50 all-FREE grid for path planning.
+        return _AllFreeGridReader(50, 50)
+
 
 def test_same_map_delegates_to_navigate() -> None:
     world = MultiMapWorld(start_map=(0, 0), start_cell=(0, 0))
     result = travel_to(
-        world, world, MapMemory(), WallMap(),
+        world, world, MapMemory(),
         goal_map=(0, 0), goal_cell=(2, 0),
     )
     assert result == "arrived"
@@ -83,7 +99,7 @@ def test_single_hop_crosses_one_known_door() -> None:
     memory = MapMemory()
     memory.record_portal((0, 0), (2, 0), "right", (0, 1), reversible=True, to_cell=(0, 0))
     result = travel_to(
-        world, world, memory, WallMap(),
+        world, world, memory,
         goal_map=(0, 1), goal_cell=(1, 0),
     )
     assert result == "arrived"
@@ -102,7 +118,7 @@ def test_three_map_chain() -> None:
     memory.record_portal((0, 0), (2, 0), "right", (0, 1), reversible=True, to_cell=(0, 0))
     memory.record_portal((0, 1), (2, 0), "right", (0, 2), reversible=True, to_cell=(0, 0))
     result = travel_to(
-        world, world, memory, WallMap(),
+        world, world, memory,
         goal_map=(0, 2), goal_cell=(1, 0),
     )
     assert result == "arrived"
@@ -117,7 +133,7 @@ def test_unknown_route_when_portal_missing() -> None:
     memory.observe(WorldSnapshot((0, 1), (0, 0), None), WorldEvent())
     world = MultiMapWorld(start_map=(0, 0), start_cell=(0, 0))
     result = travel_to(
-        world, world, memory, WallMap(),
+        world, world, memory,
         goal_map=(0, 1), goal_cell=(1, 0),
     )
     assert result == "unknown_route"
@@ -126,7 +142,7 @@ def test_unknown_route_when_portal_missing() -> None:
 def test_unknown_route_when_goal_never_visited() -> None:
     world = MultiMapWorld(start_map=(0, 0), start_cell=(0, 0))
     result = travel_to(
-        world, world, MapMemory(), WallMap(),
+        world, world, MapMemory(),
         goal_map=(9, 9), goal_cell=(0, 0),
     )
     assert result == "unknown_route"
@@ -139,7 +155,7 @@ def test_unreachable_when_door_cell_is_walled_off() -> None:
     memory.record_portal((0, 0), (2, 0), "right", (0, 1), reversible=True, to_cell=(0, 0))
     world = MultiMapWorld(start_map=(0, 0), start_cell=(0, 0), walls=walls)
     result = travel_to(
-        world, world, memory, WallMap(),
+        world, world, memory,
         goal_map=(0, 1), goal_cell=(1, 0),
     )
     assert result == "unreachable"
@@ -152,7 +168,7 @@ def test_lost_when_crossing_lands_on_unexpected_map() -> None:
     memory.record_portal((0, 0), (2, 0), "right", (0, 1), reversible=True, to_cell=(0, 0))
     world = MultiMapWorld(start_map=(0, 0), start_cell=(0, 0), borders=borders)
     result = travel_to(
-        world, world, memory, WallMap(),
+        world, world, memory,
         goal_map=(0, 1), goal_cell=(1, 0),
     )
     assert result == "lost"
@@ -172,7 +188,7 @@ def test_unreachable_when_the_crossing_press_cannot_reach_the_far_side() -> None
     memory.record_portal((0, 0), (2, 0), "right", (0, 1), reversible=True, to_cell=(0, 0))
     world = MultiMapWorld(start_map=(0, 0), start_cell=(0, 0), walls=walls)
     result = travel_to(
-        world, world, memory, WallMap(),
+        world, world, memory,
         goal_map=(0, 1), goal_cell=(1, 0),
     )
     assert result == "unreachable"
@@ -227,6 +243,11 @@ class LostBattleWorld:
     def in_battle(self) -> bool:
         return self._battle
 
+    @property
+    def grid_reader(self) -> _AllFreeGridReader:
+        # navigate_grid uses a 50x50 all-FREE grid for path planning.
+        return _AllFreeGridReader(50, 50)
+
     def read_bytes(self, addr: int, size: int) -> bytes:
         from env.game_state import (
             ACTION_MENU_VALUE,
@@ -268,7 +289,7 @@ def test_battle_loss_propagates_from_the_first_hop() -> None:
     # (1,0), loses the battle, and the loss propagates as battle_lost (not "lost").
     world = LostBattleWorld(map_id=(0, 0), start=(0, 0), grass_at=(1, 0))
     result = travel_to(
-        world, world, MapMemory(), WallMap(),
+        world, world, MapMemory(),
         goal_map=(0, 0), goal_cell=(2, 0),
         move_type_fn=lambda mid: 12, predict=lambda obs: 0,
     )

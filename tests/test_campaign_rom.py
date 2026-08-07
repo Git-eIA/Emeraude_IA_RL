@@ -26,7 +26,6 @@ _STATE = Path(__file__).resolve().parents[2] / "Emu" / "states" / "post_starter.
 def test_run_campaign_skips_level_up_and_advances_on_real_rom() -> None:
     from emulator.gba import GbaEmulator
     from env.campaign import Milestone, run_campaign
-    from env.local_navigator import WallMap
     from env.map_memory import MapMemory
     from env.orders import DESTINATIONS, reached
     from env.world_reader import WorldReader
@@ -44,7 +43,7 @@ def test_run_campaign_skips_level_up_and_advances_on_real_rom() -> None:
     assert reached(reader.party_levels(), 5)
 
     outcome = run_campaign(
-        emu, reader, MapMemory(), WallMap(),
+        emu, reader, MapMemory(),
         curriculum=(Milestone("route_101", 5),),
     )
 

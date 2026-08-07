@@ -25,7 +25,7 @@ from pathlib import Path
 
 from emulator import buttons
 from emulator.gba import GbaEmulator
-from env.live_navigator import snapshot_settled
+from env.grid_navigator import snapshot_settled
 from env.orders import DESTINATIONS
 from env.world_reader import WorldReader
 
