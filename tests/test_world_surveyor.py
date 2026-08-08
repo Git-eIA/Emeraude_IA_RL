@@ -73,6 +73,9 @@ class WorldGrid:
         # No battle: EncounterWatcher stays quiet — no spurious grass learned.
         return False
 
+    def battle_starting(self) -> bool:
+        return False
+
     @property
     def grid_reader(self) -> _AllFreeGridReader:
         # Derive exact room dimensions from the boundary walls for this map.
@@ -263,6 +266,9 @@ class BattleWorldGrid(WorldGrid):
                 self._phase = "menu"
 
     def in_battle(self) -> bool:
+        return self._battle
+
+    def battle_starting(self) -> bool:
         return self._battle
 
     def read_bytes(self, addr: int, size: int) -> bytes:

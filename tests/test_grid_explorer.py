@@ -39,6 +39,9 @@ class _ExploreWorld:
     def in_battle(self):
         return False
 
+    def battle_starting(self):
+        return False
+
     def party_hp(self):
         return [(20, 20)]
 

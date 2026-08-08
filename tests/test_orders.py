@@ -96,6 +96,9 @@ class NamedWorld:
         # No battle: EncounterWatcher stays quiet — no spurious grass learned.
         return False
 
+    def battle_starting(self) -> bool:
+        return False
+
     @property
     def grid_reader(self) -> _AllFreeGridReader:
         return _AllFreeGridReader(50, 50)
@@ -163,6 +166,9 @@ class HealWorld:
 
     def in_battle(self) -> bool:
         # No battle: EncounterWatcher stays quiet — no spurious grass learned.
+        return False
+
+    def battle_starting(self) -> bool:
         return False
 
     @property
@@ -235,6 +241,9 @@ class GrassWorld:
         return [(5, 5)]  # full: heal watcher stays quiet
 
     def in_battle(self) -> bool:
+        return self._steps >= self._to_enc
+
+    def battle_starting(self) -> bool:
         return self._steps >= self._to_enc
 
     @property
@@ -344,6 +353,9 @@ class GrassBattleWorld:
         return [(5, 5)]
 
     def in_battle(self) -> bool:
+        return self._battle
+
+    def battle_starting(self) -> bool:
         return self._battle
 
     @property
@@ -499,6 +511,9 @@ class FarmWorld:
         return list(self._hp)
 
     def in_battle(self) -> bool:
+        return self._battle
+
+    def battle_starting(self) -> bool:
         return self._battle
 
     def read_bytes(self, addr: int, size: int) -> bytes:
@@ -694,6 +709,9 @@ class AdvanceBattleWorld:
         return [(5, 5)]
 
     def in_battle(self) -> bool:
+        return self._battle
+
+    def battle_starting(self) -> bool:
         return self._battle
 
     def read_bytes(self, addr: int, size: int) -> bytes:

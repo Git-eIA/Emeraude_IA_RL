@@ -76,6 +76,9 @@ class MultiMapWorld:
         # No battle: EncounterWatcher stays quiet — no spurious grass learned.
         return False
 
+    def battle_starting(self) -> bool:
+        return False
+
     @property
     def grid_reader(self) -> _AllFreeGridReader:
         # navigate_grid uses a 50x50 all-FREE grid for path planning.
@@ -241,6 +244,9 @@ class LostBattleWorld:
         return [(5, 5)]
 
     def in_battle(self) -> bool:
+        return self._battle
+
+    def battle_starting(self) -> bool:
         return self._battle
 
     @property
