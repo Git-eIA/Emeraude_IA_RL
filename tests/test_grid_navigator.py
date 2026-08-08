@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+import env.grid_navigator as gn
 from env.grid_navigator import plan_path_grid
 from env.grid_snapshot import GridSnapshot
 from env.map_grid_reader import TileKind
@@ -165,6 +168,9 @@ class _LedgeWorld:
     def in_battle(self):
         return False
 
+    def battle_starting(self):
+        return False
+
     def party_hp(self):
         return [(20, 20)]
 
@@ -266,3 +272,267 @@ def test_navigate_grid_gives_up_on_a_blocked_off_map_border():
     world = _LedgeWorld(rows, start=(1, 0))
     assert navigate_grid(world, world, target=(2, 0), max_steps=50) == "unreachable"
     assert world._pos == (1, 0)
+
+
+# --- handle_battle_interruption unit tests ---
+
+
+class _ScriptedBattleReader:
+    """Emulator+reader double scripting the intro/active/overworld sequence.
+
+    battle_starting() is True from the start; in_battle() flips True only after
+    `intro_steps` idle steps (models the opponent populating). A monkeypatched
+    play_battle calls end() to clear both, so the fade-wait terminates.
+    """
+
+    def __init__(self, intro_steps: int = 2) -> None:
+        self._intro_left = intro_steps
+        self._battle = True
+        self.steps = 0
+
+    def step(self, _key: int, _frames: int) -> None:
+        self.steps += 1
+        if self._intro_left > 0:
+            self._intro_left -= 1
+
+    def battle_starting(self) -> bool:
+        return self._battle
+
+    def in_battle(self) -> bool:
+        return self._battle and self._intro_left == 0
+
+    def end(self) -> str:
+        self._battle = False
+        return "won"
+
+
+def test_handle_waits_out_intro_then_wins(monkeypatch) -> None:
+    r = _ScriptedBattleReader(intro_steps=2)
+    monkeypatch.setattr(gn, "play_battle", lambda *a, **k: r.end())
+    out = gn.handle_battle_interruption(r, r, move_type_fn=lambda m: 0, predict=lambda o: 0)
+    assert out is None                       # won -> resume
+    assert r.in_battle() is False            # overworld control on return
+    assert r.battle_starting() is False
+
+
+def test_handle_returns_none_when_no_battle() -> None:
+    class _NoBattle:
+        def battle_starting(self) -> bool:
+            return False
+        def in_battle(self) -> bool:
+            return False
+    r = _NoBattle()
+    assert gn.handle_battle_interruption(r, r, None, None) is None
+
+
+def test_handle_reports_interrupted_without_fighter() -> None:
+    r = _ScriptedBattleReader(intro_steps=0)
+    assert gn.handle_battle_interruption(r, r, None, None) == "battle_interrupted"
+
+
+def test_handle_reports_loss(monkeypatch) -> None:
+    r = _ScriptedBattleReader(intro_steps=0)
+    monkeypatch.setattr(gn, "play_battle", lambda *a, **k: "lost")
+    out = gn.handle_battle_interruption(r, r, move_type_fn=lambda m: 0, predict=lambda o: 0)
+    assert out == "battle_lost"
+
+
+def test_handle_reports_timeout(monkeypatch) -> None:
+    r = _ScriptedBattleReader(intro_steps=0)
+    monkeypatch.setattr(gn, "play_battle", lambda *a, **k: "battle_timeout")
+    out = gn.handle_battle_interruption(r, r, move_type_fn=lambda m: 0, predict=lambda o: 0)
+    assert out == "battle_timeout"
+
+
+class _FadeBattleReader:
+    """After the battle is won, battle_starting()/in_battle() stay True for a
+    few fade steps, then clear — exercises handle's fade-wait loop body."""
+
+    def __init__(self, fade_steps: int = 3) -> None:
+        self._fade_left = fade_steps
+        self._won = False
+        self.steps = 0
+
+    def step(self, _key: int, _frames: int) -> None:
+        self.steps += 1
+        if self._won and self._fade_left > 0:
+            self._fade_left -= 1
+
+    def battle_starting(self) -> bool:
+        if not self._won:
+            return True
+        return self._fade_left > 0
+
+    def in_battle(self) -> bool:
+        if not self._won:
+            return True
+        return self._fade_left > 0
+
+    def win(self) -> str:
+        self._won = True
+        return "won"
+
+
+def test_handle_idles_through_end_fade(monkeypatch) -> None:
+    r = _FadeBattleReader(fade_steps=3)
+    monkeypatch.setattr(gn, "play_battle", lambda *a, **k: r.win())
+    out = gn.handle_battle_interruption(r, r, move_type_fn=lambda m: 0, predict=lambda o: 0)
+    assert out is None
+    assert r.battle_starting() is False        # fade fully cleared before return
+    assert r.in_battle() is False
+    assert r.steps >= 3                         # the fade-wait loop idled
+
+
+class _TrapGrassWorld:
+    """3x1 vertical corridor: start (0,2) -> target (0,0), all FREE.
+
+    Stepping from (0,1) to (0,0) is 'frozen' by a wild battle: the first press at
+    (0,1) does not move and battle_starting is True. A monkeypatched play_battle
+    calls clear() so the retry moves. Tracks pressed directions to prove no poison.
+    """
+
+    def __init__(self) -> None:
+        self._pos = (0, 2)
+        self._battle = False
+        self._armed = True          # next northward press at (0,1) triggers a battle
+        self._grid = _FakeGridReader([[_TK.FREE], [_TK.FREE], [_TK.FREE]])
+
+    def snapshot(self):
+        return WorldSnapshot(map_id=(0, 16), pos=self._pos, tile_behavior=0)
+
+    def in_battle(self):
+        return self._battle
+
+    def battle_starting(self):
+        return self._battle
+
+    def party_hp(self):
+        return [(20, 20)]
+
+    @property
+    def grid_reader(self):
+        return self._grid
+
+    def clear(self) -> str:
+        self._battle = False
+        return "won"
+
+    def step(self, key, _frames):
+        from emulator import buttons
+        if key != buttons.KEY_UP:
+            return
+        if self._battle:
+            return                              # frozen mid-battle
+        if self._pos == (0, 1) and self._armed:
+            self._battle = True                 # encounter fires, no move
+            self._armed = False
+            return
+        self._pos = (self._pos[0], self._pos[1] - 1)
+
+
+def test_navigate_grid_recovers_from_battle_frozen_press(monkeypatch) -> None:
+    w = _TrapGrassWorld()
+    monkeypatch.setattr(gn, "play_battle", lambda *a, **k: w.clear())
+    result = gn.navigate_grid(
+        w, w, target=(0, 0), max_steps=50,
+        move_type_fn=lambda m: 0, predict=lambda o: 0,
+    )
+    assert result == "arrived"
+    assert w._pos == (0, 0)
+
+
+class _FlickerGrassWorld:
+    """At (0,1) the first northward press sets battle flags that NEVER become a
+    real battle (in_battle stays False). The anti-poison guard calls
+    handle_battle_interruption, which idles out the intro then returns None
+    ('not ours'). The nav must `continue` WITHOUT poisoning the tile and resume.
+
+    The start window is a step countdown (6): it outlives probe_step's few
+    settle presses (so battle_starting is still True at the guard) but is idled
+    away inside handle's bounded intro-wait — mirroring how a real battle window
+    spans far more frames than a single probe.
+    """
+
+    def __init__(self) -> None:
+        self._pos = (0, 2)
+        self._starting = 0          # >0 => battle_starting True; in_battle never True
+        self._tripped = False       # the (0,1) flicker fires exactly once
+        self._grid = _FakeGridReader([[_TK.FREE], [_TK.FREE], [_TK.FREE]])
+
+    def snapshot(self):
+        return WorldSnapshot(map_id=(0, 16), pos=self._pos, tile_behavior=0)
+
+    def in_battle(self):
+        return False                # flags set but no opponent ever populates
+
+    def battle_starting(self):
+        return self._starting > 0
+
+    def party_hp(self):
+        return [(20, 20)]
+
+    @property
+    def grid_reader(self):
+        return self._grid
+
+    def step(self, key, _frames):
+        from emulator import buttons
+        if self._starting > 0:
+            self._starting -= 1     # every emulated step ages the start window
+        if key != buttons.KEY_UP:
+            return
+        if self._starting > 0:
+            return                  # frozen while the start window is open
+        if self._pos == (0, 1) and not self._tripped:
+            self._starting = 6      # blocked press: flags set, never a real battle
+            self._tripped = True
+            return                  # no move
+        self._pos = (self._pos[0], self._pos[1] - 1)
+
+
+def test_navigate_grid_continues_when_flags_never_become_battle(monkeypatch) -> None:
+    # play_battle must never be reached (in_battle never confirms); if the guard
+    # poisoned (0,1)->UP, planning would fail and return 'unreachable'.
+    monkeypatch.setattr(gn, "play_battle", lambda *a, **k: pytest.fail("no battle"))
+    w = _FlickerGrassWorld()
+    result = gn.navigate_grid(
+        w, w, target=(0, 0), max_steps=50,
+        move_type_fn=lambda m: 0, predict=lambda o: 0,
+    )
+    assert result == "arrived"
+    assert w._pos == (0, 0)
+
+
+class _WalledWorld:
+    """Target (0,0) is unreachable: (0,1)->(0,0) is a WALL, no battle ever."""
+
+    def __init__(self) -> None:
+        self._pos = (0, 2)
+        self._grid = _FakeGridReader([[_TK.WALL], [_TK.FREE], [_TK.FREE]])
+
+    def snapshot(self):
+        return WorldSnapshot(map_id=(0, 16), pos=self._pos, tile_behavior=0)
+
+    def in_battle(self):
+        return False
+
+    def battle_starting(self):
+        return False
+
+    def party_hp(self):
+        return [(20, 20)]
+
+    @property
+    def grid_reader(self):
+        return self._grid
+
+    def step(self, key, _frames):
+        from emulator import buttons
+        if key == buttons.KEY_UP and self._pos == (0, 2):
+            self._pos = (0, 1)      # can reach (0,1); (0,0) is a wall
+
+
+def test_navigate_grid_still_reports_genuine_wall() -> None:
+    w = _WalledWorld()
+    result = gn.navigate_grid(w, w, target=(0, 0), max_steps=30)
+    assert result == "unreachable"

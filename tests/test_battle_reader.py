@@ -140,3 +140,36 @@ def test_is_trainer_battle_false_for_wild_flags() -> None:
     # Wild battles have non-zero flags but the 0x0008 trainer bit is clear.
     reader = _make_reader(in_battle=True, flags=0x0001)
     assert reader.is_trainer_battle() is False
+
+
+# --- battle_starting() tests ---
+
+def _starting_reader(flags: int, outcome: int) -> BattleReader:
+    """Minimal reader for battle_starting(): only flags and outcome matter."""
+    def read(addr: int, size: int) -> bytes:
+        if addr == GBATTLE_TYPE_FLAGS_ADDR:
+            return flags.to_bytes(2, "little")
+        if addr == GBATTLE_OUTCOME_ADDR:
+            return bytes([outcome])
+        return bytes(size)
+    return BattleReader(read)
+
+
+def test_battle_starting_true_on_active_or_intro() -> None:
+    # flags set, no terminal outcome yet: intro (opp not populated) or active.
+    assert _starting_reader(flags=0x0004, outcome=0).battle_starting() is True
+
+
+def test_battle_starting_false_on_residual_flags() -> None:
+    # Loaded post-battle savestate: flags linger but outcome is terminal.
+    assert _starting_reader(flags=0x0004, outcome=1).battle_starting() is False
+
+
+def test_battle_starting_false_on_any_terminal_outcome() -> None:
+    # Any non-zero outcome is terminal (1=won, 2=lost, ...): flags set but the
+    # battle has ended -> not a live intro/active window.
+    assert _starting_reader(flags=0x0004, outcome=2).battle_starting() is False
+
+
+def test_battle_starting_false_on_overworld() -> None:
+    assert _starting_reader(flags=0x0000, outcome=0).battle_starting() is False

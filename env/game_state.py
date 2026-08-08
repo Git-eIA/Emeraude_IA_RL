@@ -234,6 +234,18 @@ class BattleReader:
             last_move_super_effective=bool(move_result & _MOVE_RESULT_SUPER_EFFECTIVE),
         )
 
+    def battle_starting(self) -> bool:
+        """True while battle flags are set with no terminal outcome yet.
+
+        Covers the intro window — flags set before gBattleMons populates, so
+        battle_state().in_battle is still False — and the active battle. Residual
+        flags from a loaded post-battle savestate carry outcome != 0 and read
+        False, so a freshly loaded savestate does not hang the navigator.
+        """
+        flags = self._u16(GBATTLE_TYPE_FLAGS_ADDR)
+        outcome = self._u8(GBATTLE_OUTCOME_ADDR)
+        return flags != 0 and outcome == 0
+
     def is_trainer_battle(self) -> bool:
         """True when the current battle is against a trainer (not wild)."""
         return bool(self._u16(GBATTLE_TYPE_FLAGS_ADDR) & BATTLE_TYPE_TRAINER)
