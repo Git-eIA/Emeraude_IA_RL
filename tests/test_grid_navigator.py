@@ -333,3 +333,49 @@ def test_handle_reports_loss(monkeypatch) -> None:
     monkeypatch.setattr(gn, "play_battle", lambda *a, **k: "lost")
     out = gn.handle_battle_interruption(r, r, move_type_fn=lambda m: 0, predict=lambda o: 0)
     assert out == "battle_lost"
+
+
+def test_handle_reports_timeout(monkeypatch) -> None:
+    r = _ScriptedBattleReader(intro_steps=0)
+    monkeypatch.setattr(gn, "play_battle", lambda *a, **k: "battle_timeout")
+    out = gn.handle_battle_interruption(r, r, move_type_fn=lambda m: 0, predict=lambda o: 0)
+    assert out == "battle_timeout"
+
+
+class _FadeBattleReader:
+    """After the battle is won, battle_starting()/in_battle() stay True for a
+    few fade steps, then clear — exercises handle's fade-wait loop body."""
+
+    def __init__(self, fade_steps: int = 3) -> None:
+        self._fade_left = fade_steps
+        self._won = False
+        self.steps = 0
+
+    def step(self, _key: int, _frames: int) -> None:
+        self.steps += 1
+        if self._won and self._fade_left > 0:
+            self._fade_left -= 1
+
+    def battle_starting(self) -> bool:
+        if not self._won:
+            return True
+        return self._fade_left > 0
+
+    def in_battle(self) -> bool:
+        if not self._won:
+            return True
+        return self._fade_left > 0
+
+    def win(self) -> str:
+        self._won = True
+        return "won"
+
+
+def test_handle_idles_through_end_fade(monkeypatch) -> None:
+    r = _FadeBattleReader(fade_steps=3)
+    monkeypatch.setattr(gn, "play_battle", lambda *a, **k: r.win())
+    out = gn.handle_battle_interruption(r, r, move_type_fn=lambda m: 0, predict=lambda o: 0)
+    assert out is None
+    assert r.battle_starting() is False        # fade fully cleared before return
+    assert r.in_battle() is False
+    assert r.steps >= 3                         # the fade-wait loop idled
