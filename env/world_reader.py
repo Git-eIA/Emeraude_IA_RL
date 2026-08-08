@@ -55,6 +55,15 @@ class WorldReader:
         """True while a wild/trainer battle is active."""
         return self._battle.battle_state().in_battle
 
+    def battle_starting(self) -> bool:
+        """True during a battle's intro/active window (flags set, no outcome yet).
+
+        Distinct from in_battle(): it is already True during the intro, before the
+        opponent's HP populates. The navigator uses it to avoid mistaking a
+        battle-frozen press for a wall.
+        """
+        return self._battle.battle_starting()
+
     def _tile_behavior(self) -> int | None:
         """Raw metatile behavior of the tile the player stands on, or None."""
         ps = self._reader.player_state()

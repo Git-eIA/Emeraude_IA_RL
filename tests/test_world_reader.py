@@ -128,3 +128,14 @@ def test_grid_reader_exposes_the_map_grid_reader():
     assert isinstance(reader.grid_reader, MapGridReader)
     # same instance each access (no re-construction)
     assert reader.grid_reader is reader.grid_reader
+
+
+def test_world_reader_battle_starting_delegates() -> None:
+    def read(addr: int, size: int) -> bytes:
+        if addr == GBATTLE_TYPE_FLAGS_ADDR:
+            return (0x0004).to_bytes(2, "little")
+        if addr == GBATTLE_OUTCOME_ADDR:
+            return bytes([0])
+        return bytes(size)
+
+    assert WorldReader(read).battle_starting() is True
