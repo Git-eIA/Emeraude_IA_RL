@@ -379,3 +379,96 @@ def test_handle_idles_through_end_fade(monkeypatch) -> None:
     assert r.battle_starting() is False        # fade fully cleared before return
     assert r.in_battle() is False
     assert r.steps >= 3                         # the fade-wait loop idled
+
+
+class _TrapGrassWorld:
+    """3x1 vertical corridor: start (0,2) -> target (0,0), all FREE.
+
+    Stepping from (0,1) to (0,0) is 'frozen' by a wild battle: the first press at
+    (0,1) does not move and battle_starting is True. A monkeypatched play_battle
+    calls clear() so the retry moves. Tracks pressed directions to prove no poison.
+    """
+
+    def __init__(self) -> None:
+        self._pos = (0, 2)
+        self._battle = False
+        self._armed = True          # next northward press at (0,1) triggers a battle
+        self._grid = _FakeGridReader([[_TK.FREE], [_TK.FREE], [_TK.FREE]])
+
+    def snapshot(self):
+        return WorldSnapshot(map_id=(0, 16), pos=self._pos, tile_behavior=0)
+
+    def in_battle(self):
+        return self._battle
+
+    def battle_starting(self):
+        return self._battle
+
+    def party_hp(self):
+        return [(20, 20)]
+
+    @property
+    def grid_reader(self):
+        return self._grid
+
+    def clear(self) -> str:
+        self._battle = False
+        return "won"
+
+    def step(self, key, _frames):
+        from emulator import buttons
+        if key != buttons.KEY_UP:
+            return
+        if self._battle:
+            return                              # frozen mid-battle
+        if self._pos == (0, 1) and self._armed:
+            self._battle = True                 # encounter fires, no move
+            self._armed = False
+            return
+        self._pos = (self._pos[0], self._pos[1] - 1)
+
+
+def test_navigate_grid_recovers_from_battle_frozen_press(monkeypatch) -> None:
+    w = _TrapGrassWorld()
+    monkeypatch.setattr(gn, "play_battle", lambda *a, **k: w.clear())
+    result = gn.navigate_grid(
+        w, w, target=(0, 0), max_steps=50,
+        move_type_fn=lambda m: 0, predict=lambda o: 0,
+    )
+    assert result == "arrived"
+    assert w._pos == (0, 0)
+
+
+class _WalledWorld:
+    """Target (0,0) is unreachable: (0,1)->(0,0) is a WALL, no battle ever."""
+
+    def __init__(self) -> None:
+        self._pos = (0, 2)
+        self._grid = _FakeGridReader([[_TK.WALL], [_TK.FREE], [_TK.FREE]])
+
+    def snapshot(self):
+        return WorldSnapshot(map_id=(0, 16), pos=self._pos, tile_behavior=0)
+
+    def in_battle(self):
+        return False
+
+    def battle_starting(self):
+        return False
+
+    def party_hp(self):
+        return [(20, 20)]
+
+    @property
+    def grid_reader(self):
+        return self._grid
+
+    def step(self, key, _frames):
+        from emulator import buttons
+        if key == buttons.KEY_UP and self._pos == (0, 2):
+            self._pos = (0, 1)      # can reach (0,1); (0,0) is a wall
+
+
+def test_navigate_grid_still_reports_genuine_wall() -> None:
+    w = _WalledWorld()
+    result = gn.navigate_grid(w, w, target=(0, 0), max_steps=30)
+    assert result == "unreachable"

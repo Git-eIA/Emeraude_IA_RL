@@ -292,5 +292,15 @@ def navigate_grid(
                     )
             return "left_map"
         if outcome == "blocked":
-            blocked.add((before.pos, direction))   # transient: NPC / surprise
+            # A press can fail because a wild battle just started on this step
+            # (grass), not because of a wall. Consume the battle and re-plan
+            # instead of poisoning the tile as unreachable.
+            if reader.battle_starting() or reader.in_battle():
+                battle = handle_battle_interruption(
+                    emulator, reader, move_type_fn, predict
+                )
+                if battle is not None:
+                    return battle
+                continue
+            blocked.add((before.pos, direction))   # genuine wall / NPC
     return "timeout"
