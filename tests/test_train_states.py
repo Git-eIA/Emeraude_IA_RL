@@ -2,7 +2,21 @@ from __future__ import annotations
 
 import pytest
 
-from agent.train import load_initial_states
+from agent.train import load_initial_states, select_milestones
+
+
+def test_select_milestones_route103_is_the_north_push_chain():
+    ms = select_milestones("route103")
+    assert [m.name for m in ms] == ["reach_oldale", "reach_route_103", "beat_rival"]
+    # beat_rival is terminal and gated on the env's rival_beaten latch.
+    assert ms[-1].terminal
+    assert ms[-1].env_condition is not None
+
+
+def test_select_milestones_default_is_the_starter_chain():
+    starter = select_milestones("starter")
+    assert "starter_obtained" in {m.name for m in starter}
+    assert select_milestones("route103") != starter
 
 
 def test_load_returns_truck_plus_frontier(tmp_path):
