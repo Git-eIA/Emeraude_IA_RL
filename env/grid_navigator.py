@@ -134,6 +134,7 @@ STEP_FRAMES = 24      # hold a d-pad key ~0.4 s: one walking tile
 RELEASE_FRAMES = 8    # idle after each press so the GBA doesn't fuse presses
 TURN_RETRIES = 2      # a first press may only turn; retry to tell turn from wall
 SETTLE_TRIES = 4      # re-read snapshot to skip SaveBlock None frames
+BATTLE_TRANSITION_SETTLE = 8   # bounded idle steps to wait out a battle intro/fade
 
 
 def snapshot_settled(reader: Any) -> Any:
@@ -158,20 +159,35 @@ def resolve_move(before: Any, after: Any) -> str:
 def handle_battle_interruption(
     emulator: Any, reader: Any, move_type_fn: Any, predict: Any
 ) -> str | None:
-    """If a wild battle is in progress, hand it to the Fighter and report.
+    """Play any live wild battle and return only in overworld control.
 
-    None when there is no battle (or it was won) so the caller resumes; a
-    terminal outcome otherwise: "battle_interrupted" (no Fighter), "battle_lost",
+    Gating on battle_starting() (flags set, no terminal outcome) catches the intro
+    window where in_battle() is still False because the opponent has not populated.
+    We idle until in_battle() confirms, play the battle, then idle out the end-fade
+    so the caller never presses into a frozen game.
+
+    None when there is no battle (or it was won) so the caller resumes; a terminal
+    outcome otherwise: "battle_interrupted" (no Fighter), "battle_lost",
     "battle_timeout".
     """
-    if not reader.in_battle():
+    if not reader.battle_starting():
         return None
+    for _ in range(BATTLE_TRANSITION_SETTLE):
+        if reader.in_battle():
+            break
+        emulator.step(0, RELEASE_FRAMES)
+    if not reader.in_battle():
+        return None   # flags set but never became a real battle: not ours
     if move_type_fn is None or predict is None:
         return "battle_interrupted"
     result = play_battle(emulator, move_type_fn, predict)
-    if result == "won":
-        return None
-    return "battle_lost" if result == "lost" else "battle_timeout"
+    if result != "won":
+        return "battle_lost" if result == "lost" else "battle_timeout"
+    for _ in range(BATTLE_TRANSITION_SETTLE):
+        if not reader.battle_starting() and not reader.in_battle():
+            break
+        emulator.step(0, RELEASE_FRAMES)
+    return None
 
 
 def probe_step(emulator: Any, reader: Any, before: Any, direction: str) -> str:

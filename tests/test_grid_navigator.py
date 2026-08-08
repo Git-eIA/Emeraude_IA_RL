@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import env.grid_navigator as gn
 from env.grid_navigator import plan_path_grid
 from env.grid_snapshot import GridSnapshot
 from env.map_grid_reader import TileKind
@@ -269,3 +270,66 @@ def test_navigate_grid_gives_up_on_a_blocked_off_map_border():
     world = _LedgeWorld(rows, start=(1, 0))
     assert navigate_grid(world, world, target=(2, 0), max_steps=50) == "unreachable"
     assert world._pos == (1, 0)
+
+
+# --- handle_battle_interruption unit tests ---
+
+
+class _ScriptedBattleReader:
+    """Emulator+reader double scripting the intro/active/overworld sequence.
+
+    battle_starting() is True from the start; in_battle() flips True only after
+    `intro_steps` idle steps (models the opponent populating). A monkeypatched
+    play_battle calls end() to clear both, so the fade-wait terminates.
+    """
+
+    def __init__(self, intro_steps: int = 2) -> None:
+        self._intro_left = intro_steps
+        self._battle = True
+        self.steps = 0
+
+    def step(self, _key: int, _frames: int) -> None:
+        self.steps += 1
+        if self._intro_left > 0:
+            self._intro_left -= 1
+
+    def battle_starting(self) -> bool:
+        return self._battle
+
+    def in_battle(self) -> bool:
+        return self._battle and self._intro_left == 0
+
+    def end(self) -> str:
+        self._battle = False
+        return "won"
+
+
+def test_handle_waits_out_intro_then_wins(monkeypatch) -> None:
+    r = _ScriptedBattleReader(intro_steps=2)
+    monkeypatch.setattr(gn, "play_battle", lambda *a, **k: r.end())
+    out = gn.handle_battle_interruption(r, r, move_type_fn=lambda m: 0, predict=lambda o: 0)
+    assert out is None                       # won -> resume
+    assert r.in_battle() is False            # overworld control on return
+    assert r.battle_starting() is False
+
+
+def test_handle_returns_none_when_no_battle() -> None:
+    class _NoBattle:
+        def battle_starting(self) -> bool:
+            return False
+        def in_battle(self) -> bool:
+            return False
+    r = _NoBattle()
+    assert gn.handle_battle_interruption(r, r, None, None) is None
+
+
+def test_handle_reports_interrupted_without_fighter() -> None:
+    r = _ScriptedBattleReader(intro_steps=0)
+    assert gn.handle_battle_interruption(r, r, None, None) == "battle_interrupted"
+
+
+def test_handle_reports_loss(monkeypatch) -> None:
+    r = _ScriptedBattleReader(intro_steps=0)
+    monkeypatch.setattr(gn, "play_battle", lambda *a, **k: "lost")
+    out = gn.handle_battle_interruption(r, r, move_type_fn=lambda m: 0, predict=lambda o: 0)
+    assert out == "battle_lost"
