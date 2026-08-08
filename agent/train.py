@@ -14,8 +14,10 @@ from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
+from agent.train_fighter import make_move_type_fn
 from emulator.gba import GbaEmulator
 from env.capture.recorder import RecorderCallback
+from env.milestones import route103_milestones, starter_milestones
 from env.pokemon_env import PokemonEmeraldEnv
 
 log = logging.getLogger("agent.train")
@@ -34,10 +36,43 @@ def load_initial_states(truck: Path, frontier_dir: Path) -> list[bytes]:
     return states
 
 
-def make_env(rom_path: str, initial_states: list[bytes], max_steps: int):
+def select_milestones(name: str) -> tuple:
+    """Map a CLI name to a milestone chain (reward curriculum)."""
+    if name == "route103":
+        return route103_milestones()
+    return starter_milestones()
+
+
+def make_env(
+    rom_path: str,
+    initial_states: list[bytes],
+    max_steps: int,
+    milestones_name: str = "starter",
+    fighter_path: Path | None = None,
+):
     def _init() -> Monitor:
+        emu = GbaEmulator(rom_path)
+        move_type_fn = None
+        predict = None
+        if fighter_path is not None:
+            # SubprocVecEnv can't ship a live SB3 model across processes, so each
+            # env subprocess loads the (tiny, CPU) Fighter itself and wraps it as
+            # the in-episode auto-battler that PokemonEmeraldEnv.step calls.
+            fighter = PPO.load(fighter_path, device="cpu")
+            move_type_fn = make_move_type_fn(emu)
+
+            def predict(obs):
+                return int(fighter.predict(obs, deterministic=True)[0])
+
         # Monitor records episode rewards/lengths so SB3 logs rollout/ep_rew_mean.
-        env = PokemonEmeraldEnv(GbaEmulator(rom_path), initial_states, max_steps=max_steps)
+        env = PokemonEmeraldEnv(
+            emu,
+            initial_states,
+            max_steps=max_steps,
+            milestones=select_milestones(milestones_name),
+            move_type_fn=move_type_fn,
+            predict=predict,
+        )
         return Monitor(env)
 
     return _init
@@ -60,14 +95,32 @@ def main() -> int:
     parser.add_argument("--capture-every", type=int, default=200)
     parser.add_argument("--clip-len", type=int, default=48)
     parser.add_argument("--max-frame-gb", type=float, default=20.0)
+    parser.add_argument(
+        "--milestones", choices=["starter", "route103"], default="starter",
+        help="reward curriculum",
+    )
+    parser.add_argument(
+        "--fighter", type=Path, default=None,
+        help="Fighter checkpoint to auto-battle wild/trainer encounters in-episode",
+    )
+    parser.add_argument(
+        "--start", type=Path, default=None,
+        help="single start savestate (overrides the truck+frontier reset pool)",
+    )
     args = parser.parse_args()
 
     rom = os.environ.get("POKEMON_EMERALD_ROM")
     if not rom:
         log.error("Set POKEMON_EMERALD_ROM")
         return 1
-    if not STATE_PATH.is_file():
+    if args.start is None and not STATE_PATH.is_file():
         log.error("Missing %s — create it with tools/play_interactive.py", STATE_PATH)
+        return 1
+    if args.start is not None and not args.start.is_file():
+        log.error("Missing --start %s", args.start)
+        return 1
+    if args.fighter is not None and not args.fighter.is_file():
+        log.error("Missing --fighter %s", args.fighter)
         return 1
 
     run_id = args.run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -76,10 +129,20 @@ def main() -> int:
     # on a run too short to trigger CheckpointCallback's own mkdir.
     (run_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
 
-    initial_states = load_initial_states(STATE_PATH, EXPLORER_DIR)
-    log.info("Reset pool: %d state(s) (truck + %d frontier)", len(initial_states), len(initial_states) - 1)
+    if args.start is not None:
+        initial_states = [args.start.read_bytes()]
+        log.info("Reset pool: single start state %s", args.start)
+    else:
+        initial_states = load_initial_states(STATE_PATH, EXPLORER_DIR)
+        log.info(
+            "Reset pool: %d state(s) (truck + %d frontier)",
+            len(initial_states), len(initial_states) - 1,
+        )
     vec = SubprocVecEnv(
-        [make_env(rom, initial_states, args.max_steps) for _ in range(args.envs)]
+        [
+            make_env(rom, initial_states, args.max_steps, args.milestones, args.fighter)
+            for _ in range(args.envs)
+        ]
     )
     device = pick_device()
     log.info("Training on device=%s with %d envs (run=%s)", device, args.envs, run_id)
@@ -111,7 +174,9 @@ def main() -> int:
             "argv": sys.argv,
             "total_timesteps": args.timesteps,
             "rom": rom,
-            "initial_state": str(STATE_PATH),
+            "initial_state": str(args.start) if args.start is not None else str(STATE_PATH),
+            "milestones": args.milestones,
+            "fighter": str(args.fighter) if args.fighter is not None else None,
             "max_steps": args.max_steps,
         }
         callbacks.append(
