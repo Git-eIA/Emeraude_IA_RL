@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 import env.grid_navigator as gn
 from env.grid_navigator import plan_path_grid
 from env.grid_snapshot import GridSnapshot
@@ -431,6 +433,68 @@ class _TrapGrassWorld:
 def test_navigate_grid_recovers_from_battle_frozen_press(monkeypatch) -> None:
     w = _TrapGrassWorld()
     monkeypatch.setattr(gn, "play_battle", lambda *a, **k: w.clear())
+    result = gn.navigate_grid(
+        w, w, target=(0, 0), max_steps=50,
+        move_type_fn=lambda m: 0, predict=lambda o: 0,
+    )
+    assert result == "arrived"
+    assert w._pos == (0, 0)
+
+
+class _FlickerGrassWorld:
+    """At (0,1) the first northward press sets battle flags that NEVER become a
+    real battle (in_battle stays False). The anti-poison guard calls
+    handle_battle_interruption, which idles out the intro then returns None
+    ('not ours'). The nav must `continue` WITHOUT poisoning the tile and resume.
+
+    The start window is a step countdown (6): it outlives probe_step's few
+    settle presses (so battle_starting is still True at the guard) but is idled
+    away inside handle's bounded intro-wait — mirroring how a real battle window
+    spans far more frames than a single probe.
+    """
+
+    def __init__(self) -> None:
+        self._pos = (0, 2)
+        self._starting = 0          # >0 => battle_starting True; in_battle never True
+        self._tripped = False       # the (0,1) flicker fires exactly once
+        self._grid = _FakeGridReader([[_TK.FREE], [_TK.FREE], [_TK.FREE]])
+
+    def snapshot(self):
+        return WorldSnapshot(map_id=(0, 16), pos=self._pos, tile_behavior=0)
+
+    def in_battle(self):
+        return False                # flags set but no opponent ever populates
+
+    def battle_starting(self):
+        return self._starting > 0
+
+    def party_hp(self):
+        return [(20, 20)]
+
+    @property
+    def grid_reader(self):
+        return self._grid
+
+    def step(self, key, _frames):
+        from emulator import buttons
+        if self._starting > 0:
+            self._starting -= 1     # every emulated step ages the start window
+        if key != buttons.KEY_UP:
+            return
+        if self._starting > 0:
+            return                  # frozen while the start window is open
+        if self._pos == (0, 1) and not self._tripped:
+            self._starting = 6      # blocked press: flags set, never a real battle
+            self._tripped = True
+            return                  # no move
+        self._pos = (self._pos[0], self._pos[1] - 1)
+
+
+def test_navigate_grid_continues_when_flags_never_become_battle(monkeypatch) -> None:
+    # play_battle must never be reached (in_battle never confirms); if the guard
+    # poisoned (0,1)->UP, planning would fail and return 'unreachable'.
+    monkeypatch.setattr(gn, "play_battle", lambda *a, **k: pytest.fail("no battle"))
+    w = _FlickerGrassWorld()
     result = gn.navigate_grid(
         w, w, target=(0, 0), max_steps=50,
         move_type_fn=lambda m: 0, predict=lambda o: 0,

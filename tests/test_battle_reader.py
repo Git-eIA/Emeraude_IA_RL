@@ -165,5 +165,11 @@ def test_battle_starting_false_on_residual_flags() -> None:
     assert _starting_reader(flags=0x0004, outcome=1).battle_starting() is False
 
 
+def test_battle_starting_false_on_any_terminal_outcome() -> None:
+    # Any non-zero outcome is terminal (1=won, 2=lost, ...): flags set but the
+    # battle has ended -> not a live intro/active window.
+    assert _starting_reader(flags=0x0004, outcome=2).battle_starting() is False
+
+
 def test_battle_starting_false_on_overworld() -> None:
     assert _starting_reader(flags=0x0000, outcome=0).battle_starting() is False
