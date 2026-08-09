@@ -54,6 +54,11 @@ RIVAL_FLAG = 0x2D3
 RIVAL_TILE = (10, 3)
 
 _FLAGS_OFF = 0x1270           # SaveBlock1.flags[] offset (Emerald)
+_PARTY_COUNT_ADDR = 0x020244E9
+_PARTY_ADDR = 0x020244EC
+_PARTY_STRIDE = 100
+_PARTY_CURHP_OFF = 0x56       # party-mon current HP (u16)
+_PARTY_MAXHP_OFF = 0x58       # party-mon max HP (u16)
 _STANDABLE = {TileKind.FREE, TileKind.GRASS}
 _LOST = ("battle_lost", "battle_timeout", "battle_interrupted")
 DELTA_KEYS = {"up": buttons.KEY_UP, "down": buttons.KEY_DOWN,
@@ -75,6 +80,18 @@ def _clear_flag(emu, flag_id: int) -> int:
     val = emu.read_bytes(addr, 1)[0] & ~(1 << (flag_id % 8))
     emu._core._core.rawWrite8(emu._core._core, addr, -1, val)
     return (emu.read_bytes(addr, 1)[0] >> (flag_id % 8)) & 1
+
+
+def _heal_party(emu) -> None:
+    """Set each party mon's current HP to its max in RAM, so the rival battle is entered at
+    full HP. states/route_103_reached.state carries pre-existing attrition (mon at 6/25); the
+    artifact must test the Fighter's skill on a fair start, not an unwinnable near-fainted one."""
+    count = emu.read_bytes(_PARTY_COUNT_ADDR, 1)[0]
+    for i in range(count):
+        o = _PARTY_ADDR + i * _PARTY_STRIDE
+        maxhp = int.from_bytes(emu.read_bytes(o + _PARTY_MAXHP_OFF, 2), "little")
+        emu._core._core.rawWrite8(emu._core._core, o + _PARTY_CURHP_OFF, -1, maxhp & 0xFF)
+        emu._core._core.rawWrite8(emu._core._core, o + _PARTY_CURHP_OFF + 1, -1, (maxhp >> 8) & 0xFF)
 
 
 def _step_until_map(emu, reader, key, *, want_equal=None, want_change_from=None):
@@ -280,7 +297,8 @@ def _attempt(emu, state_bytes, mtf, predict, attempt) -> int:
             print(f"END retarget nav {lost}")
             return 1
 
-    print(f"arrived at {stand_cell}; facing {facing}, spamming A")
+    _heal_party(emu)
+    print(f"arrived at {stand_cell}; healed party to full; facing {facing}, spamming A")
     if _talk_until_battle(emu, reader, battle, facing) and battle.is_trainer_battle():
         Path(OUTPUT_STATE).write_bytes(emu.save_state())
         print(f"END rival_confirmed -> saved {OUTPUT_STATE}")
