@@ -119,17 +119,17 @@ def _adjacent_targets(snap, tile):
     return out
 
 
-def _pick_stand_cell(reader, here):
-    """Shortest grass-avoiding path to a cell adjacent to the rival. Returns (cell, facing)."""
+def _pick_stand_cell(reader, here, tile):
+    """Shortest grass-avoiding path to a cell adjacent to `tile`. Returns (cell, facing)."""
     snap = GridSnapshot.from_reader(reader.grid_reader, here.map_id)
     grass = _grass_blocked(snap)
     best = None
-    for cell, facing in _adjacent_targets(snap, RIVAL_TILE):
+    for cell, facing in _adjacent_targets(snap, tile):
         path = plan_path_grid(snap, here.pos, cell, blocked=grass)
         if path is not None and (best is None or len(path) < best[2]):
             best = (cell, facing, len(path))
     if best is None:
-        for cell, facing in _adjacent_targets(snap, RIVAL_TILE):   # grass-allowed fallback
+        for cell, facing in _adjacent_targets(snap, tile):   # grass-allowed fallback
             path = plan_path_grid(snap, here.pos, cell)
             if path is not None and (best is None or len(path) < best[2]):
                 best = (cell, facing, len(path))
@@ -194,6 +194,21 @@ def _scan_objects(emu):
         print(f"    live obj slot={i} gfx=0x{blob[o+5]:02x} tile=({gx-7},{gy-7}){tag}")
 
 
+def _locate_rival(emu):
+    """Return the live map tile (x, y) of the rival object (gfx 0x40), or None if not loaded."""
+    blob = emu.read_bytes(0x02037350, 0x24 * 16)
+    for i in range(16):
+        o = i * 0x24
+        if not blob[o] & 1:
+            continue
+        if blob[o + 5] != 0x40:
+            continue
+        gx = int.from_bytes(blob[o + 0x10:o + 0x12], "little", signed=True)
+        gy = int.from_bytes(blob[o + 0x12:o + 0x14], "little", signed=True)
+        return (gx - 7, gy - 7)
+    return None
+
+
 def main() -> int:
     rom = os.environ["POKEMON_EMERALD_ROM"]
     emu = GbaEmulator(rom)
@@ -221,7 +236,7 @@ def main() -> int:
 
     _scan_objects(emu)
     here = snapshot_settled(reader)
-    stand_cell, facing = _pick_stand_cell(reader, here)
+    stand_cell, facing = _pick_stand_cell(reader, here, RIVAL_TILE)
     if stand_cell is None:
         print(f"no path to a cell adjacent to {RIVAL_TILE}; aborting")
         return 1
@@ -230,6 +245,26 @@ def main() -> int:
     if lost is not None:
         print(f"END nav {lost}")
         return 1
+
+    # Phase 2: retarget to the LIVE rival object position (may differ from ROM template).
+    _scan_objects(emu)
+    rival = _locate_rival(emu)
+    print(f"live rival tile = {rival}")
+    if rival is None:
+        print("END rival_object_not_loaded")
+        return 1
+    here = snapshot_settled(reader)
+    stand_cell, facing = _pick_stand_cell(reader, here, rival)
+    if stand_cell is None:
+        print(f"no path to a cell adjacent to live rival {rival}; aborting")
+        return 1
+    if here.pos != stand_cell:
+        print(f"retarget {here.pos} -> stand {stand_cell} face {facing}")
+        lost = _navigate(emu, reader, battle, mtf, predict, stand_cell)
+        if lost is not None:
+            print(f"END retarget nav {lost}")
+            return 1
+
     print(f"arrived at {stand_cell}; facing {facing}, spamming A")
     if _talk_until_battle(emu, reader, battle, facing) and battle.is_trainer_battle():
         Path(OUTPUT_STATE).write_bytes(emu.save_state())
