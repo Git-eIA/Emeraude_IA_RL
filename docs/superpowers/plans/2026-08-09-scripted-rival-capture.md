@@ -1,5 +1,15 @@
 # Scripted Rival Capture Implementation Plan
 
+> **CORRECTION (2026-08-09, post-implementation):** This plan's target was WRONG. `obj[10]`
+> (gfx `0x40`, tile `(7,3)`, hide-flag `0x0382`) is **Prof. Birch**, NOT the rival. The real
+> rival is `obj[1]` (live gfx `0x69` set at runtime by `checkplayergender`, tile `(10,3)`,
+> hide-flag **`0x2D3`** = `FLAG_HIDE_ROUTE_103_RIVAL`); its script `Route103_EventScript_Rival`
+> has no story-var gate — the hide-flag is the only gate. The as-shipped tool clears `0x2D3`,
+> reloads route_103, navigates to `(10,4)`, retargets to the live rival object, heals the party
+> to full (the input state carries attrition), and A-spams (~200 presses) to trigger the battle.
+> Read the tool + `probe_rival_script.py` for ground truth; the flag/tile references below are
+> the mistaken originals.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to
 > implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

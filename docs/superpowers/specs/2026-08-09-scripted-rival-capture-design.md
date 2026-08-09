@@ -1,5 +1,13 @@
 # Scripted Rival Capture — Design
 
+> **CORRECTION (2026-08-09, post-implementation):** The target below is WRONG. `obj[10]`
+> (gfx `0x40`, tile `(7,3)`, hide-flag `0x0382`) is **Prof. Birch**, NOT the rival. The real
+> rival is `obj[1]` (live gfx `0x69`, tile `(10,3)`, hide-flag **`0x2D3`** =
+> `FLAG_HIDE_ROUTE_103_RIVAL`); its script `Route103_EventScript_Rival` has no story-var gate.
+> Approach A works: the shipped tool clears `0x2D3`, reloads route_103, navigates to `(10,4)`,
+> heals the party to full, and A-spams to mint the artifact. Both ROM smokes now pass
+> load-bearing. The `0x0382`/`(7,3)` references below are the mistaken originals.
+
 **Date:** 2026-08-09
 **Status:** Approved (brainstorming)
 **Scope:** Rewrite the throwaway tool `tools/capture_trainer_battle.py` so it produces the
