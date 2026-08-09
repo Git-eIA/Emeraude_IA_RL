@@ -74,6 +74,18 @@ The existing `tools/capture_trainer_battle.py` (naive d-pad cycling, never worke
 rival is flag-gated) is fully replaced. Its two consumers reference only the output path
 `states/trainer_battle.state`, which is unchanged.
 
+**Imports are added per task, not all upfront** (keeps ruff F401-clean at every task boundary).
+Each task adds exactly the imports its new code references. For reference, the full set used
+by the finished tool:
+- Task 1: `os`, `sys`, `GbaEmulator`, `SAVE_BLOCK1_PTR`, `TileKind`, `WorldReader`.
+- Task 2: `snapshot_settled` (from `env.grid_navigator`), `buttons` (from `emulator`),
+  `RELEASE_FRAMES` (from `env.grid_navigator`).
+- Task 3: `DELTAS`, `BATTLE_TRANSITION_SETTLE`, `handle_battle_interruption`,
+  `plan_path_grid`, `probe_step` (all `env.grid_navigator`); `GridSnapshot`
+  (`env.grid_snapshot`); `BattleReader` (`env.game_state`); `make_move_type_fn`
+  (`agent.train_fighter`); `PPO` imported inside the function body.
+- Task 4: `Path` (`pathlib`).
+
 ---
 
 ## Task 1: Scaffold — imports, constants, RAM flag-clear, one-attempt skeleton
@@ -105,24 +117,11 @@ from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from agent.train_fighter import make_move_type_fn
-from emulator import buttons
 from emulator.gba import GbaEmulator
-from env.game_state import SAVE_BLOCK1_PTR, BattleReader
-from env.grid_navigator import (
-    BATTLE_TRANSITION_SETTLE,
-    DELTAS,
-    RELEASE_FRAMES,
-    handle_battle_interruption,
-    plan_path_grid,
-    probe_step,
-    snapshot_settled,
-)
-from env.grid_snapshot import GridSnapshot
+from env.game_state import SAVE_BLOCK1_PTR
 from env.map_grid_reader import TileKind
 from env.world_reader import WorldReader
 
