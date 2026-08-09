@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -168,6 +169,18 @@ def _navigate(emu, reader, battle, mtf, predict, stand_cell):
     return "battle_timeout"
 
 
+def _talk_until_battle(emu, reader, battle, facing):
+    """Face the rival, then spam A through pre-battle dialogue until a battle starts."""
+    here = snapshot_settled(reader)
+    probe_step(emu, reader, here, facing)   # turn to face (7,3)
+    for _ in range(_TALK_A_PRESSES):
+        emu.step(buttons.KEY_A, RELEASE_FRAMES)
+        emu.step(0, RELEASE_FRAMES)
+        if battle.battle_starting():
+            return True
+    return battle.battle_starting()
+
+
 def _scan_objects(emu):
     """Print live gObjectEvents slots (gfx + tile) so the rival spawn can be eyeballed."""
     blob = emu.read_bytes(0x02037350, 0x24 * 16)
@@ -217,8 +230,14 @@ def main() -> int:
     if lost is not None:
         print(f"END nav {lost}")
         return 1
-    print(f"arrived at {stand_cell}")
-    return 0
+    print(f"arrived at {stand_cell}; facing {facing}, spamming A")
+    if _talk_until_battle(emu, reader, battle, facing) and battle.is_trainer_battle():
+        Path(OUTPUT_STATE).write_bytes(emu.save_state())
+        print(f"END rival_confirmed -> saved {OUTPUT_STATE}")
+        return 0
+    print(f"END no_trainer_battle starting={battle.battle_starting()} "
+          f"trainer={battle.is_trainer_battle()} in_battle={reader.in_battle()}")
+    return 1
 
 
 if __name__ == "__main__":
