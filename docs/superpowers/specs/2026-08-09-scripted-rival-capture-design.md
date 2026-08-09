@@ -59,24 +59,45 @@ Flow:
 2. **Clear** hide-flag `0x0382` in RAM via a `rawWrite8` helper
    (`emu._core._core.rawWrite8(emu._core._core, addr, -1, value)`;
    `addr = SaveBlock1Ptr + 0x1270 + flagId//8`).
-3. **Force a map reload** so object events respawn with the flag now clear: step DOWN until
-   `map_id` leaves route_103 (into Oldale `(0,10)`), then step UP until back on route_103
-   `(0,18)`. Both are bounded loops. The rival now spawns at `(7,3)`.
-4. **Navigate** to a standable cell 4-adjacent to `(7,3)` using shortest A*
-   (`plan_path_grid`). Because the confirmed trip is short and NW, grass is allowed rather
-   than fully blocked; `handle_battle_interruption` lets the Fighter clear any wild it
-   triggers en route.
-5. **Talk:** face `(7,3)`, press A. If `battle_starting()` AND `is_trainer_battle()` →
+3. **Force a map reload** so object events respawn with the flag now clear: leave route_103
+   south into Oldale `(0,10)`, then re-enter north back onto route_103 `(0,18)`. The rival now
+   spawns at `(7,3)`. The south/north crossing is done by **A\* navigation to the connection
+   edge** (`plan_path_grid` toward the edge cell), not by holding a single direction — holding
+   DOWN from `(10,21)` can stall against a wall/ledge depending on the column. Both crossings
+   are bounded (give up after a fixed step budget and report).
+4. **Navigate** to a standable cell 4-adjacent to `(7,3)` using shortest A* (`plan_path_grid`),
+   grass allowed. Grass is allowed (not fully blocked) because the northward traverse to the
+   `(7,3)` area was observed once at **0 wilds** (probe reached `(4,2)`, 3 tiles away, in 17
+   presses) and the attrition net (step 6) covers the RNG risk — not because the trip is short
+   (it is the full north traverse from the reload edge). `handle_battle_interruption` lets the
+   Fighter clear any wild triggered en route.
+5. **Talk:** face `(7,3)`, then **spam A through any pre-battle dialogue** until either
+   `battle_starting()` is True or a bounded A-press budget is exhausted. The rival is a
+   scripted event battle (`trainerType=0`), so talking likely runs dialogue before the battle
+   engages; a single A-press would miss it. On `battle_starting()` AND `is_trainer_battle()` →
    write `states/trainer_battle.state`, exit 0. Else exit 1 with diagnostics
    (`starting`, `trainer`, `in_battle`, `pos`).
 6. **Attrition safety net (approved: nav-first + teleport-fallback).** Run real navigation
    first. If navigation ends in a whiteout (`handle_battle_interruption` returns a losing
    outcome), fall back to a RAM-teleport of the player's coordinates to a cell adjacent to
    `(7,3)`, then talk. The teleport is a logged, explicit last resort — never the default
-   path — so the artifact is honest about how it was produced.
+   path — so the artifact is honest about how it was produced. **The teleport mechanism is
+   not yet proven:** writing only `gObjectEvents[0].currentCoords` may not relocate the player
+   cleanly (camera / collision / `SaveBlock1.pos` / `gPlayerAvatar` can desync). The
+   implementation plan must either pin down the exact set of addresses to write, or replace
+   the fallback with **retry the reload+nav with fresh RNG** if a clean teleport proves
+   infeasible.
 
-This also confirms the one remaining open question (does obj[10] fire a *trainer* battle on
-talk), since success == `is_trainer_battle()` True.
+## Risks and open questions
+
+- **Does talking to obj[10] actually start a battle?** No probe has confirmed it. Spawning the
+  sprite (flag clear + reload) is not the same as the talk-triggers-battle script being active
+  — the rival battle can be gated by additional story flags. If the sprite spawns but talking
+  never yields `battle_starting()`, **approach A is dead** and the legit story-flag path
+  (Option B: Birch's post-lab dialog) becomes mandatory. In that case the tool exits 1 with
+  the `starting=False` diagnostic and we escalate to Option B rather than patching this tool.
+  Success of this tool == `is_trainer_battle()` True, which simultaneously confirms this open
+  question.
 
 ## Non-goals
 
