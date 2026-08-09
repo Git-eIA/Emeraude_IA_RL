@@ -228,13 +228,16 @@ def _locate_rival(emu):
     return best[0] if best is not None else None
 
 
-def main() -> int:
-    rom = os.environ["POKEMON_EMERALD_ROM"]
-    emu = GbaEmulator(rom)
-    with open(INPUT_STATE, "rb") as fh:
-        emu.load_state(fh.read())
-    emu.step(0, 4)
+def _attempt(emu, state_bytes, mtf, predict, attempt) -> int:
+    """Run one full capture attempt from a freshly-reloaded state. Returns 0 on success.
+
+    Each attempt reloads the input state (restoring the party after any whiteout) and
+    idles a few RNG-perturbing frames scaled by the attempt index, so wild-encounter
+    rolls vary across retries and the northward trip can eventually dodge attrition."""
+    emu.load_state(state_bytes)
+    emu.step(0, 4 + _RNG_PERTURB_FRAMES * attempt)
     reader = WorldReader(emu.read_bytes)
+    battle = BattleReader(emu.read_bytes)
 
     here = reader.snapshot()
     print(f"start map={here.map_id} pos={here.pos}")
@@ -245,13 +248,6 @@ def main() -> int:
     if back is None:
         print("FAILED to reload route_103; aborting")
         return 1
-    battle = BattleReader(emu.read_bytes)
-    from stable_baselines3 import PPO
-    model = PPO.load(FIGHTER_CKPT, device="cpu")
-
-    def predict(obs) -> int:
-        return int(model.predict(obs, deterministic=True)[0])
-    mtf = make_move_type_fn(emu)
 
     _scan_objects(emu)
     here = snapshot_settled(reader)
@@ -291,6 +287,26 @@ def main() -> int:
         return 0
     print(f"END no_trainer_battle starting={battle.battle_starting()} "
           f"trainer={battle.is_trainer_battle()} in_battle={reader.in_battle()}")
+    return 1
+
+
+def main() -> int:
+    rom = os.environ["POKEMON_EMERALD_ROM"]
+    emu = GbaEmulator(rom)
+    state_bytes = Path(INPUT_STATE).read_bytes()
+
+    from stable_baselines3 import PPO
+    model = PPO.load(FIGHTER_CKPT, device="cpu")
+
+    def predict(obs) -> int:
+        return int(model.predict(obs, deterministic=True)[0])
+    mtf = make_move_type_fn(emu)
+
+    for attempt in range(_MAX_ATTEMPTS):
+        print(f"=== attempt {attempt + 1}/{_MAX_ATTEMPTS} ===")
+        if _attempt(emu, state_bytes, mtf, predict, attempt) == 0:
+            return 0
+    print(f"END exhausted {_MAX_ATTEMPTS} attempts without a trainer battle")
     return 1
 
 
