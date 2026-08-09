@@ -1,11 +1,14 @@
 """Throwaway capture tool: spawn the flag-gated route_103 rival and mint trainer_battle.state.
 
-The rival (gObjectEvents template obj[10]: gfx 0x40, tile (7,3), trainerType 0) is HIDDEN by
-SaveBlock1 hide-flag 0x0382. This tool clears that flag in RAM (cheat-spawn, for the ARTIFACT
-only), forces a map reload so the object respawns, navigates the sand to a cell adjacent to
-(7,3), and spams A through any dialogue until a trainer battle starts -- then saves
-states/trainer_battle.state. A bounded retry loop reloads the state fresh (party restored) and
-perturbs RNG to absorb wild-encounter attrition on the northward trip.
+The rival (gObjectEvents template obj[1]: tile (10,3), script Route103_EventScript_Rival) is
+HIDDEN by SaveBlock1 hide-flag 0x2D3 (FLAG_HIDE_ROUTE_103_RIVAL). The rival script has no
+story-var gate -- the hide-flag is the only gate. (Note: obj[10] gfx 0x40 tile (7,3) flag 0x0382
+is Prof. Birch, not the rival; earlier revisions of this tool targeted Birch by mistake.) This
+tool clears the rival flag in RAM (cheat-spawn, for the ARTIFACT only), forces a map reload so
+the object respawns, navigates to a cell adjacent to (10,3), and spams A through any dialogue
+until a trainer battle starts -- then saves states/trainer_battle.state. A bounded retry loop
+reloads the state fresh (party restored) and perturbs RNG to absorb wild-encounter attrition on
+the northward trip.
 
 The legit path (Birch's post-lab dialog clearing 0x0382) is the deferred scripted campaign
 (Option B); this tool only produces the artifact so the two trainer-battle ROM smokes become
@@ -45,16 +48,22 @@ OUTPUT_STATE = "states/trainer_battle.state"
 FIGHTER_CKPT = "checkpoints/fighter/ppo_fighter_final.zip"
 
 ROUTE_103 = (0, 18)
-RIVAL_FLAG = 0x0382
-RIVAL_TILE = (7, 3)
+# FLAG_HIDE_ROUTE_103_RIVAL: gates obj[1] (the real rival, tile (10,3)). The map's
+# obj[10] (gfx 0x40, tile (7,3), flag 0x0382) is Prof. Birch, not the rival.
+RIVAL_FLAG = 0x2D3
+RIVAL_TILE = (10, 3)
 
 _FLAGS_OFF = 0x1270           # SaveBlock1.flags[] offset (Emerald)
 _STANDABLE = {TileKind.FREE, TileKind.GRASS}
 _LOST = ("battle_lost", "battle_timeout", "battle_interrupted")
+DELTA_KEYS = {"up": buttons.KEY_UP, "down": buttons.KEY_DOWN,
+              "left": buttons.KEY_LEFT, "right": buttons.KEY_RIGHT}
 
 _RELOAD_BUDGET = 30           # bounded map-crossing loop
 _NAV_MAX = 250               # bounded nav loop
-_TALK_A_PRESSES = 30         # A-spam budget through pre-battle dialogue
+_TALK_A_PRESSES = 200        # A-spam budget through pre-battle dialogue (rival checkplayergender
+                             # + text runs long; the proven probe needed ~200 presses)
+_TALK_IDLE_MULT = 3          # idle-frame multiplier between A presses so text advances
 _MAX_ATTEMPTS = 5            # retry-RNG budget
 _RNG_PERTURB_FRAMES = 17     # idle frames * attempt to vary wild rolls
 
@@ -171,13 +180,17 @@ def _navigate(emu, reader, battle, mtf, predict, stand_cell):
 
 def _talk_until_battle(emu, reader, battle, facing):
     """Face the rival, then spam A through pre-battle dialogue until a battle starts."""
-    here = snapshot_settled(reader)
-    probe_step(emu, reader, here, facing)   # turn to face (7,3)
+    # Orient with a few facing presses: the first only turns the player, later ones
+    # are absorbed by the solid rival tile. Generous idle gaps let the turn settle.
+    facing_key = DELTA_KEYS[facing]
+    for _ in range(3):
+        emu.step(facing_key, RELEASE_FRAMES)
+        emu.step(0, RELEASE_FRAMES * 2)
     for _ in range(_TALK_A_PRESSES):
-        emu.step(buttons.KEY_A, RELEASE_FRAMES)
-        emu.step(0, RELEASE_FRAMES)
         if battle.battle_starting():
             return True
+        emu.step(buttons.KEY_A, RELEASE_FRAMES)
+        emu.step(0, RELEASE_FRAMES * _TALK_IDLE_MULT)
     return battle.battle_starting()
 
 
@@ -190,23 +203,29 @@ def _scan_objects(emu):
             continue
         gx = int.from_bytes(blob[o + 0x10:o + 0x12], "little", signed=True)
         gy = int.from_bytes(blob[o + 0x12:o + 0x14], "little", signed=True)
-        tag = " <-- RIVAL GFX" if blob[o + 5] == 0x40 else ""
+        tag = " <-- RIVAL TILE" if (gx - 7, gy - 7) == RIVAL_TILE else ""
         print(f"    live obj slot={i} gfx=0x{blob[o+5]:02x} tile=({gx-7},{gy-7}){tag}")
 
 
 def _locate_rival(emu):
-    """Return the live map tile (x, y) of the rival object (gfx 0x40), or None if not loaded."""
+    """Return the live map tile (x, y) of the rival object, or None if not loaded.
+
+    The rival's live graphicsId is set at runtime by checkplayergender (May/Brendan),
+    so it does not match the ROM template gfx. Locate by proximity to RIVAL_TILE among
+    active non-player slots (slot 0 is the player)."""
     blob = emu.read_bytes(0x02037350, 0x24 * 16)
-    for i in range(16):
+    best = None
+    for i in range(1, 16):
         o = i * 0x24
         if not blob[o] & 1:
             continue
-        if blob[o + 5] != 0x40:
-            continue
         gx = int.from_bytes(blob[o + 0x10:o + 0x12], "little", signed=True)
         gy = int.from_bytes(blob[o + 0x12:o + 0x14], "little", signed=True)
-        return (gx - 7, gy - 7)
-    return None
+        tile = (gx - 7, gy - 7)
+        dist = abs(tile[0] - RIVAL_TILE[0]) + abs(tile[1] - RIVAL_TILE[1])
+        if best is None or dist < best[1]:
+            best = (tile, dist)
+    return best[0] if best is not None else None
 
 
 def main() -> int:
