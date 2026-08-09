@@ -24,8 +24,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import emulator.buttons as buttons
 from emulator.gba import GbaEmulator
-from env.game_state import SAVE_BLOCK1_PTR
-from env.grid_navigator import RELEASE_FRAMES, snapshot_settled
+from agent.train_fighter import make_move_type_fn
+from env.game_state import BattleReader, SAVE_BLOCK1_PTR
+from env.grid_navigator import (
+    BATTLE_TRANSITION_SETTLE,
+    DELTAS,
+    RELEASE_FRAMES,
+    handle_battle_interruption,
+    plan_path_grid,
+    probe_step,
+    snapshot_settled,
+)
+from env.grid_snapshot import GridSnapshot
 from env.map_grid_reader import TileKind
 from env.world_reader import WorldReader
 
@@ -85,6 +95,79 @@ def _reload_route_103(emu, reader):
     return back if (back is not None and back.map_id == ROUTE_103) else None
 
 
+def _grass_blocked(snap):
+    """Directed edges whose target tile is GRASS (grass allowed but discouraged via cost)."""
+    blocked = set()
+    for y in range(snap.height):
+        for x in range(snap.width):
+            if snap.classify_at(x, y) not in _STANDABLE:
+                continue
+            for direction, (dx, dy) in DELTAS.items():
+                if snap.classify_at(x + dx, y + dy) is TileKind.GRASS:
+                    blocked.add(((x, y), direction))
+    return blocked
+
+
+def _adjacent_targets(snap, tile):
+    """Standable cells 4-adjacent to `tile`, each with the heading that faces `tile`."""
+    out = []
+    for direction, (dx, dy) in DELTAS.items():
+        cell = (tile[0] - dx, tile[1] - dy)
+        if snap.classify_at(*cell) in _STANDABLE:
+            out.append((cell, direction))
+    return out
+
+
+def _pick_stand_cell(reader, here):
+    """Shortest grass-avoiding path to a cell adjacent to the rival. Returns (cell, facing)."""
+    snap = GridSnapshot.from_reader(reader.grid_reader, here.map_id)
+    grass = _grass_blocked(snap)
+    best = None
+    for cell, facing in _adjacent_targets(snap, RIVAL_TILE):
+        path = plan_path_grid(snap, here.pos, cell, blocked=grass)
+        if path is not None and (best is None or len(path) < best[2]):
+            best = (cell, facing, len(path))
+    if best is None:
+        for cell, facing in _adjacent_targets(snap, RIVAL_TILE):   # grass-allowed fallback
+            path = plan_path_grid(snap, here.pos, cell)
+            if path is not None and (best is None or len(path) < best[2]):
+                best = (cell, facing, len(path))
+    return (best[0], best[1]) if best else (None, None)
+
+
+def _navigate(emu, reader, battle, mtf, predict, stand_cell):
+    """Walk to stand_cell, letting the Fighter clear wilds. Returns None on arrival else a
+    losing outcome string."""
+    presses = 0
+    while presses < _NAV_MAX:
+        here = snapshot_settled(reader)
+        if here is None or here.pos[0] > 255 or here.pos[1] > 255:
+            # Transitional RAM frame: pos is garbage; idle a frame and retry.
+            emu.step(0, RELEASE_FRAMES)
+            presses += 1
+            continue
+        if battle.battle_starting():
+            for _ in range(BATTLE_TRANSITION_SETTLE):
+                if reader.in_battle():
+                    break
+                emu.step(0, RELEASE_FRAMES)
+            wild = handle_battle_interruption(emu, reader, mtf, predict)
+            print(f"    wild at {here.pos} -> {wild}")
+            if wild in _LOST:
+                return wild
+            continue
+        if here.pos == stand_cell:
+            return None
+        snap = GridSnapshot.from_reader(reader.grid_reader, here.map_id)
+        path = plan_path_grid(snap, here.pos, stand_cell)
+        if not path:
+            print(f"    lost path from {here.pos} to {stand_cell}")
+            return "battle_interrupted"
+        probe_step(emu, reader, here, path[0])
+        presses += 1
+    return "battle_timeout"
+
+
 def _scan_objects(emu):
     """Print live gObjectEvents slots (gfx + tile) so the rival spawn can be eyeballed."""
     blob = emu.read_bytes(0x02037350, 0x24 * 16)
@@ -115,7 +198,26 @@ def main() -> int:
     if back is None:
         print("FAILED to reload route_103; aborting")
         return 1
+    battle = BattleReader(emu.read_bytes)
+    from stable_baselines3 import PPO
+    model = PPO.load(FIGHTER_CKPT, device="cpu")
+
+    def predict(obs) -> int:
+        return int(model.predict(obs, deterministic=True)[0])
+    mtf = make_move_type_fn(emu)
+
     _scan_objects(emu)
+    here = snapshot_settled(reader)
+    stand_cell, facing = _pick_stand_cell(reader, here)
+    if stand_cell is None:
+        print(f"no path to a cell adjacent to {RIVAL_TILE}; aborting")
+        return 1
+    print(f"navigate {here.pos} -> stand {stand_cell} face {facing}")
+    lost = _navigate(emu, reader, battle, mtf, predict, stand_cell)
+    if lost is not None:
+        print(f"END nav {lost}")
+        return 1
+    print(f"arrived at {stand_cell}")
     return 0
 
 
