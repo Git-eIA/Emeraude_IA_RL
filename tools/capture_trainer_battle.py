@@ -22,8 +22,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import emulator.buttons as buttons
 from emulator.gba import GbaEmulator
 from env.game_state import SAVE_BLOCK1_PTR
+from env.grid_navigator import RELEASE_FRAMES, snapshot_settled
 from env.map_grid_reader import TileKind
 from env.world_reader import WorldReader
 
@@ -55,6 +57,47 @@ def _clear_flag(emu, flag_id: int) -> int:
     return (emu.read_bytes(addr, 1)[0] >> (flag_id % 8)) & 1
 
 
+def _step_until_map(emu, reader, key, *, want_equal=None, want_change_from=None):
+    """Hold `key` frame-stepping until map_id reaches/leaves the target. Bounded."""
+    last = snapshot_settled(reader)
+    for _ in range(_RELOAD_BUDGET):
+        emu.step(key, RELEASE_FRAMES)
+        emu.step(0, RELEASE_FRAMES)
+        here = snapshot_settled(reader)
+        if here is None:
+            continue
+        last = here
+        if want_equal is not None and here.map_id == want_equal:
+            return here
+        if want_equal is None and here.map_id != want_change_from:
+            return here
+    return last
+
+
+def _reload_route_103(emu, reader):
+    """Leave route_103 south into Oldale then re-enter north; respawns object events."""
+    off = _step_until_map(emu, reader, buttons.KEY_DOWN, want_change_from=ROUTE_103)
+    print(f"  stepped south -> map={off.map_id if off else None}")
+    if off is None or off.map_id == ROUTE_103:
+        return None
+    back = _step_until_map(emu, reader, buttons.KEY_UP, want_equal=ROUTE_103)
+    print(f"  stepped north -> map={back.map_id if back else None} pos={back.pos if back else None}")
+    return back if (back is not None and back.map_id == ROUTE_103) else None
+
+
+def _scan_objects(emu):
+    """Print live gObjectEvents slots (gfx + tile) so the rival spawn can be eyeballed."""
+    blob = emu.read_bytes(0x02037350, 0x24 * 16)
+    for i in range(16):
+        o = i * 0x24
+        if not blob[o] & 1:
+            continue
+        gx = int.from_bytes(blob[o + 0x10:o + 0x12], "little", signed=True)
+        gy = int.from_bytes(blob[o + 0x12:o + 0x14], "little", signed=True)
+        tag = " <-- RIVAL GFX" if blob[o + 5] == 0x40 else ""
+        print(f"    live obj slot={i} gfx=0x{blob[o+5]:02x} tile=({gx-7},{gy-7}){tag}")
+
+
 def main() -> int:
     rom = os.environ["POKEMON_EMERALD_ROM"]
     emu = GbaEmulator(rom)
@@ -67,6 +110,12 @@ def main() -> int:
     print(f"start map={here.map_id} pos={here.pos}")
     bit = _clear_flag(emu, RIVAL_FLAG)
     print(f"cleared flag 0x{RIVAL_FLAG:04x} -> bit now {bit}")
+
+    back = _reload_route_103(emu, reader)
+    if back is None:
+        print("FAILED to reload route_103; aborting")
+        return 1
+    _scan_objects(emu)
     return 0
 
 
