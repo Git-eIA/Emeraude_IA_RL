@@ -39,6 +39,8 @@ DESTINATIONS: dict[str, tuple[tuple[int, int], tuple[int, int]]] = {
     "littleroot": ((0, 9), (3, 10)),   # Bourg-en-Vol, truck landing cell
     "route_101": ((0, 16), (5, 12)),   # Route 101 south entrance (cell unverified)
     "route_103": ((0, 18), (9, 5)),    # Route 103 rival approach (map+cell unverified)
+    "lab": ((1, 4), (6, 12)),            # Birch lab warp-landing tile (probe-pinned)
+    "route_101_shoes": ((0, 16), (5, 12)),  # Route 101 running-shoes trigger cell
 }
 
 # Engage heading per trainer destination: the d-pad direction that walks into the
@@ -55,6 +57,10 @@ GRIND_STEP_FRAMES = 24
 GRIND_RELEASE_FRAMES = 8
 GRIND_MAX_STEPS = 60    # bound the walk (code-safety #2)
 
+STORY_PRESS_A_FRAMES = 6
+STORY_RELEASE_FRAMES = 10
+STORY_MAX_PRESSES = 2000   # bound the cutscene A-spam (code-safety #2)
+
 
 def execute_order(
     order: Order,
@@ -67,6 +73,7 @@ def execute_order(
     target_level: int = 0,
     heal_threshold: float = 0.4,
     max_cycles: int = 50,
+    story_target: Any = None,
 ) -> str:
     """Execute an order dispatched by the Strategist.
 
@@ -83,6 +90,7 @@ def execute_order(
     level_up adds: "leveled_up" | "grind_exhausted".
     battle_trainer adds: "no_trainer" (no battle triggered) | a
     play_trainer_battle outcome ("won" | "lost" | "battle_timeout").
+    story adds: "story_done" | "story_timeout".
     """
     if order.mode == "heal":
         return _execute_heal(emulator, reader, memory, max_hops=max_hops)
@@ -101,6 +109,11 @@ def execute_order(
     if order.mode == "battle_trainer":
         return _execute_battle_trainer(
             emulator, reader, memory, order.destination,
+            max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
+        )
+    if order.mode == "story":
+        return _execute_story(
+            emulator, reader, memory, order.destination, story_target,
             max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
         )
     dest = DESTINATIONS.get(order.destination)
@@ -290,3 +303,48 @@ def _walk_until_trainer(emulator: Any, reader: Any, heading: int) -> str:
         emulator.step(heading, GRIND_STEP_FRAMES)
         emulator.step(0, GRIND_RELEASE_FRAMES)   # release between presses (GBA debounce)
     return "engaged" if reader.in_battle() else "no_trainer"
+
+
+def _execute_story(
+    emulator: Any,
+    reader: Any,
+    memory: Any,
+    destination: str,
+    story_target: Any,
+    max_hops: int = 20,
+    move_type_fn: Any = None,
+    predict: Any = None,
+) -> str:
+    """Travel to a story cell, then A-spam until story_target(reader) holds.
+
+    Sibling of heal: heal presses A until the party is full, story presses A
+    until an injected predicate (a flag set / an item held / control regained)
+    holds. The lab cutscene locks control on its warp-landing tile, so the story
+    cell is that tile and the A-spam starts from wherever travel_to lands.
+
+    Returns "unknown_destination" | a travel_to pass-through | "story_done" |
+    "story_timeout".
+    """
+    dest = DESTINATIONS.get(destination)
+    if dest is None:
+        return "unknown_destination"
+    goal_map, goal_cell = dest
+    outcome = travel_to(
+        emulator, reader, memory, goal_map, goal_cell,
+        max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
+    )
+    if outcome != "arrived":
+        return outcome               # pass-through: unknown_route/unreachable/lost/timeout
+    return _advance_story_dialogue(emulator, reader, story_target)
+
+
+def _advance_story_dialogue(emulator: Any, reader: Any, story_target: Any) -> str:
+    """Press A until story_target(reader) is satisfied (bounded)."""
+    if story_target(reader):
+        return "story_done"
+    for _ in range(STORY_MAX_PRESSES):
+        emulator.step(buttons.KEY_A, STORY_PRESS_A_FRAMES)
+        emulator.step(0, STORY_RELEASE_FRAMES)   # release between presses (GBA debounce)
+        if story_target(reader):
+            return "story_done"
+    return "story_timeout"
