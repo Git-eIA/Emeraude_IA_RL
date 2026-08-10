@@ -6,8 +6,13 @@ import pytest
 
 from env.game_state import (
     PARTY_COUNT_ADDR,
+    POKE_BALL_ITEM_ID,
     SAVE_BLOCK1_PTR,
+    SAVE_BLOCK2_PTR,
     _FLAGS_OFFSET,
+    _ITEM_SLOT_SIZE,
+    _ITEMS_POCKET_OFFSET,
+    _SECURITY_KEY_OFFSET,
     EmeraldReader,
     FLAG_SYS_POKEDEX_GET,
     FLAG_RECEIVED_RUNNING_SHOES,
@@ -264,3 +269,40 @@ def test_has_running_shoes_true_when_flag_set() -> None:
 
 def test_has_running_shoes_false_when_flag_clear() -> None:
     assert _reader_with_flag(FLAG_RECEIVED_RUNNING_SHOES, False).has_running_shoes() is False
+
+
+def _reader_with_item(item_id: int, real_qty: int, security_key: int) -> EmeraldReader:
+    """A reader whose Items pocket slot 0 holds (item_id, real_qty) encrypted."""
+    sb1 = 0x02025734
+    sb2 = 0x02027000
+    stored_qty = real_qty ^ (security_key & 0xFFFF)
+    slot_addr = sb1 + _ITEMS_POCKET_OFFSET
+    key_addr = sb2 + _SECURITY_KEY_OFFSET
+
+    def read(addr: int, size: int) -> bytes:
+        if addr == SAVE_BLOCK1_PTR and size == 4:
+            return sb1.to_bytes(4, "little")
+        if addr == SAVE_BLOCK2_PTR and size == 4:
+            return sb2.to_bytes(4, "little")
+        if addr == key_addr and size == 4:
+            return security_key.to_bytes(4, "little")
+        if addr == slot_addr and size == _ITEM_SLOT_SIZE:
+            return item_id.to_bytes(2, "little") + stored_qty.to_bytes(2, "little")
+        return bytes(size)
+
+    return EmeraldReader(read)
+
+
+def test_has_item_decrypts_quantity_and_meets_threshold() -> None:
+    reader = _reader_with_item(POKE_BALL_ITEM_ID, real_qty=5, security_key=0x1234ABCD)
+    assert reader.has_item(POKE_BALL_ITEM_ID, min_qty=5) is True
+
+
+def test_has_item_below_threshold_is_false() -> None:
+    reader = _reader_with_item(POKE_BALL_ITEM_ID, real_qty=3, security_key=0x1234ABCD)
+    assert reader.has_item(POKE_BALL_ITEM_ID, min_qty=5) is False
+
+
+def test_has_item_absent_is_false() -> None:
+    reader = _reader_with_item(item_id=0x0, real_qty=0, security_key=0x1234ABCD)
+    assert reader.has_item(POKE_BALL_ITEM_ID, min_qty=1) is False
