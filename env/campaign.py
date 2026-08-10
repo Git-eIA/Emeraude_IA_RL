@@ -11,6 +11,7 @@ Order is emitted after arrival. No trained Strategist, no capture directive here
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, NamedTuple
 
@@ -63,6 +64,7 @@ class Milestone:
     destination: str    # a name in orders.DESTINATIONS
     target_level: int   # mean, not max — one powerhouse shouldn't unlock advance
     trainer: bool = False   # end the milestone with a battle_trainer Order
+    story_target: Callable[[Any], bool] | None = None   # story mode: A-spam until this holds
 
 
 # Hand-written curriculum. Like DESTINATIONS, a name means something to the chef
@@ -70,6 +72,17 @@ class Milestone:
 CAMPAIGN: tuple[Milestone, ...] = (
     Milestone("route_101", 5),
     Milestone("route_103", 5, trainer=True),
+)
+
+# Phase 2 curriculum: return to Littleroot, enter Birch's lab, receive Pokédex +
+# 5 Poké Balls (one cutscene -> the Balls target is idempotent), then the running
+# shoes on Route 101. Return/enter are pure arrivals (advance); the rest are story.
+PHASE2_CAMPAIGN: tuple[Milestone, ...] = (
+    Milestone("littleroot", 0),
+    Milestone("lab", 0),
+    Milestone("lab", 0, story_target=lambda r: r.has_pokedex()),
+    Milestone("lab", 0, story_target=lambda r: r.has_item(0x4, 5)),
+    Milestone("route_101_shoes", 0, story_target=lambda r: r.has_running_shoes()),
 )
 
 
@@ -91,9 +104,20 @@ def run_campaign(
 
     Returns "campaign_complete" | any non-"leveled_up" outcome from a level_up
     Order | any non-"arrived" outcome from an advance Order | any non-"won"
-    outcome from a battle_trainer Order.
+    outcome from a battle_trainer Order | any non-"story_done" outcome from a
+    story Order.
     """
     for milestone in curriculum:
+        if milestone.story_target is not None:
+            told = order_fn(
+                Order(milestone.destination, "story", "win"),
+                emulator, reader, memory,
+                max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
+                story_target=milestone.story_target,
+            )
+            if told != "story_done":
+                return told
+            continue
         if not reached(reader.party_levels(), milestone.target_level):
             leveled = order_fn(
                 Order(milestone.destination, "level_up", "win"),
