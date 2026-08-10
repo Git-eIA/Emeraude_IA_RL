@@ -70,24 +70,31 @@ A reusable greedy-descent function living beside `travel_to` in
 `env/map_traveler.py`:
 
 ```
-reach_map(emulator, reader, memory, goal_map, *, move_type_fn=None,
-          predict=None, max_hops=...) -> str
+reach_map(emulator, reader, memory, goal_map, direction_by_map, *,
+          move_type_fn=None, predict=None, max_hops=...) -> str
 ```
 
-Per hop: snapshot the current map; if it is `goal_map`, return `arrived`. Else
-cross the border toward the goal in the hop's direction, record the real `Portal`
-in `MapMemory`, and re-evaluate on the new map. Battle-proof: a wild encounter
-during a crossing is cleared by the Fighter (same battle handling
-`navigate_grid`/`explore_grid` already use); a battle loss short-circuits.
+`direction_by_map: dict[tuple[int, int], str]` maps each map the caller expects to
+traverse to the crossing direction to take from it. `goal_map` is the **stop
+condition only** — `reach_map` never computes "toward the goal" geometrically.
+
+Per hop: snapshot the current map; if it is `goal_map`, return `arrived`. Else look
+up `direction_by_map[current_map]`; if absent (an unexpected map), return `stall`.
+Cross the border in that direction with the primitive the probe proved, record the
+real `Portal` in `MapMemory`, and re-evaluate on the new map.
+
+Battle-proof: the crossing primitive calls `handle_battle_interruption` itself (it
+does NOT get this for free unless it routes through `navigate_grid`), so a wild
+encounter during a hold-DOWN crossing is cleared by the Fighter; a battle loss
+short-circuits.
 
 Returns `arrived | battle_lost | battle_timeout | battle_interrupted | stall |
-timeout`. `stall` = no crossing found from the current map (distinct from `timeout`
-= hop budget exhausted).
+timeout`. `stall` = current map not in `direction_by_map`, or no crossing fired in
+that direction. `timeout` = hop budget exhausted.
 
-**Direction is per-hop, not uniform (gap-check).** The return is NOT a single
-"greedy DOWN": it is a ledge descent (DOWN) route_103 -> Oldale -> route_101 ->
-Littleroot, then a **door warp UP** into the lab from Littleroot. Two distinct
-crossing kinds:
+**Two crossing kinds, both driven by `direction_by_map` (gap-check).** The return
+is NOT a single "greedy DOWN": it is a ledge descent (DOWN) route_103 -> Oldale ->
+route_101 -> Littleroot, then a **door warp UP** into the lab from Littleroot.
 
 - **Ledge legs (DOWN)** use the primitive the probe proved (hold-DOWN through
   murets / greedy border sweep). These are where the placeholder model broke.
@@ -96,11 +103,9 @@ crossing kinds:
   `navigate_grid` already handles for warps) works. Its real door cell is pinned by
   the probe.
 
-`reach_map` therefore takes a **direction hint per map** (the return chain is a
-fixed, known sequence). Concretely: it descends (DOWN legs) until it lands on
-Littleroot, then crosses the lab door (UP). The direction map for the return chain
-is a small constant derived from the probe:
-`{route_103: down, Oldale: down, route_101: down, Littleroot: up}`.
+`reach_map` stays generic (direction-agnostic): the return-chain constant
+`{route_103: down, Oldale: down, route_101: down, Littleroot: up}` lives in
+`campaign.py` and is passed in as `direction_by_map`, not baked into `reach_map`.
 
 `reach_map` records portals as it discovers them, so a subsequent `travel_to`/
 `plan_route` over the same `MapMemory` sees a real graph. It does NOT depend on any
@@ -114,12 +119,18 @@ advance/story modes. This keeps `env/orders.py` untouched: `run_campaign` alread
 dispatches the `story` mode at the head of its loop, so a `reach` dispatch is a
 sibling branch. The milestone carries a `reach: tuple[int, int] | None` goal-map
 field (like the existing `story_target`); when set, `run_campaign` calls
-`reach_map` and aborts on a non-`arrived` outcome.
+`reach_map(goal=milestone.reach, direction_by_map=_RETURN_DIRECTIONS)` and aborts on
+a non-`arrived` outcome.
+
+**Explicit `PHASE2_CAMPAIGN` edit.** The current curriculum opens with two advance
+milestones (`littleroot`, `lab`); these are **replaced by a single reach-home
+milestone** carrying `reach=LAB`. The story milestones (Pokedex / Balls / shoes)
+are untouched. `_RETURN_DIRECTIONS = {route_103: down, Oldale: down, route_101:
+down, Littleroot: up}` is the new constant passed to `reach_map`.
 
 The placeholder `_RETURN_PORTALS` and `seed_return_portals(memory)` are **removed**
-(portals are discovered live by `reach_map`), unless the probe shows seeding is
-still needed as a direction/landing hint — in which case they are replaced with the
-real cells the probe pinned. `run_campaign` stays a pure sequencer.
+(portals are discovered live by `reach_map`); their MapMemory regression test is
+removed with them. `run_campaign` stays a pure sequencer.
 
 The story milestones (Pokedex / Balls / shoes) are unchanged: once `reach_map`
 lands the player at the lab, the existing `story` Order mode (travel_to(cell) then
@@ -170,7 +181,8 @@ post_rival.state
 
 - No change to the RL `env/milestones.py` path.
 - No change to the story Order mode or the Phase 2 detectors (already merged).
-- No northbound change; only the southbound return uses `reach_map`. (`reach_map`
-  is direction-agnostic, but this feature wires only the return legs.)
+- No northbound change; only the southbound return wires `reach_map`. `reach_map`
+  itself is generic (its directions come from the `direction_by_map` parameter);
+  this feature just passes the return-chain constant.
 - The probe is throwaway; only Units 2-4 are durable.
 ```
