@@ -1,7 +1,19 @@
 from __future__ import annotations
 
-from env.campaign import CAMPAIGN, Milestone, run_campaign
+from env.campaign import (
+    CAMPAIGN,
+    LAB,
+    LITTLEROOT,
+    Milestone,
+    OLDALE,
+    ROUTE_101,
+    ROUTE_103,
+    run_campaign,
+    seed_return_portals,
+)
+from env.map_memory import MapMemory
 from env.orders import Order
+from env.route_planner import plan_route
 
 
 def test_milestone_holds_destination_and_target_level():
@@ -173,3 +185,20 @@ def test_non_trainer_milestone_does_not_battle():
     )
     assert result == "campaign_complete"
     assert fn.calls == [("advance", "route_101", None)]
+
+
+def test_seed_return_portals_links_route_103_to_lab() -> None:
+    memory = MapMemory()
+    seed_return_portals(memory)
+    assert plan_route(memory, ROUTE_103, LAB) == [
+        ROUTE_103, OLDALE, ROUTE_101, LITTLEROOT, LAB,
+    ]
+
+
+def test_seed_return_portals_registers_each_southbound_crossing() -> None:
+    memory = MapMemory()
+    seed_return_portals(memory)
+    assert memory.portal(ROUTE_103, OLDALE) is not None
+    assert memory.portal(OLDALE, ROUTE_101) is not None
+    assert memory.portal(ROUTE_101, LITTLEROOT) is not None
+    assert memory.portal(LITTLEROOT, LAB) is not None

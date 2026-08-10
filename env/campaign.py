@@ -14,7 +14,36 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from env.map_memory import MapMemory
 from env.orders import Order, execute_order, reached
+
+# Map-group ids for the southbound return path (probe-confirmed).
+ROUTE_103 = (0, 18)
+OLDALE = (0, 10)
+ROUTE_101 = (0, 16)
+LITTLEROOT = (0, 9)
+LAB = (1, 4)
+
+# Southbound return crossings, hand-seeded because a fresh savestate load carries
+# an empty MapMemory. from_cell/to_cell are candidates the Phase 2 probe pins
+# exactly; direction and reversibility are the real overworld/warp semantics.
+_RETURN_PORTALS: tuple[tuple, ...] = (
+    (ROUTE_103, (0, 18), "down", OLDALE, True, (0, 0)),
+    (OLDALE, (0, 9), "down", ROUTE_101, True, (0, 0)),
+    (ROUTE_101, (0, 19), "down", LITTLEROOT, True, (10, 1)),
+    (LITTLEROOT, (3, 10), "up", LAB, False, (6, 12)),
+)
+
+
+def seed_return_portals(memory: MapMemory) -> None:
+    """Register the 4 southbound return edges so travel_to can path home.
+
+    A fresh post_rival.state load has an empty MapMemory (not serialized), so
+    the first story milestone's travel_to would return 'unknown_route' on step
+    zero. This hand-seeds route_103 -> Oldale -> route_101 -> Littleroot -> lab.
+    """
+    for from_map, from_cell, direction, to_map, reversible, to_cell in _RETURN_PORTALS:
+        memory.record_portal(from_map, from_cell, direction, to_map, reversible, to_cell)
 
 
 @dataclass(frozen=True)
