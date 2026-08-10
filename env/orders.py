@@ -90,7 +90,7 @@ def execute_order(
     level_up adds: "leveled_up" | "grind_exhausted".
     battle_trainer adds: "no_trainer" (no battle triggered) | a
     play_trainer_battle outcome ("won" | "lost" | "battle_timeout").
-    story adds: "story_done" | "story_timeout".
+    story adds: "story_target_required" | "story_done" | "story_timeout".
     """
     if order.mode == "heal":
         return _execute_heal(emulator, reader, memory, max_hops=max_hops)
@@ -112,6 +112,8 @@ def execute_order(
             max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
         )
     if order.mode == "story":
+        if story_target is None:
+            return "story_target_required"
         return _execute_story(
             emulator, reader, memory, order.destination, story_target,
             max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,

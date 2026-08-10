@@ -914,3 +914,10 @@ def test_story_passes_through_travel_failure() -> None:
         order, world, world, MapMemory(), story_target=lambda r: r.event_done()
     )
     assert result == "unknown_route"
+
+
+def test_story_without_target_returns_story_target_required() -> None:
+    world = StoryWorld((1, 4), (6, 12))
+    order = Order(destination="lab", mode="story", combat="win")
+    result = execute_order(order, world, world, MapMemory())
+    assert result == "story_target_required"
