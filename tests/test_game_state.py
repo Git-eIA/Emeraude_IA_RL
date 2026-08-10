@@ -7,7 +7,10 @@ import pytest
 from env.game_state import (
     PARTY_COUNT_ADDR,
     SAVE_BLOCK1_PTR,
+    _FLAGS_OFFSET,
     EmeraldReader,
+    FLAG_SYS_POKEDEX_GET,
+    FLAG_RECEIVED_RUNNING_SHOES,
     PlayerState,
 )
 from tests.conftest import requires_rom
@@ -228,3 +231,36 @@ def test_party_hp_empty_when_no_party() -> None:
         return bytes(0 for _ in range(length))  # count = 0
 
     assert EmeraldReader(read).party_hp() == []
+
+
+def _reader_with_flag(flag_id: int, value: bool) -> EmeraldReader:
+    """A reader whose SaveBlock1 has exactly `flag_id` set to `value`."""
+    sb1 = 0x02025734
+    byte_index, bit_index = divmod(flag_id, 8)
+    flag_addr = sb1 + _FLAGS_OFFSET + byte_index
+    flag_byte = (1 << bit_index) if value else 0
+
+    def read(addr: int, size: int) -> bytes:
+        if addr == SAVE_BLOCK1_PTR and size == 4:
+            return sb1.to_bytes(4, "little")
+        if addr == flag_addr and size == 1:
+            return bytes([flag_byte])
+        return bytes(size)
+
+    return EmeraldReader(read)
+
+
+def test_has_pokedex_true_when_flag_set() -> None:
+    assert _reader_with_flag(FLAG_SYS_POKEDEX_GET, True).has_pokedex() is True
+
+
+def test_has_pokedex_false_when_flag_clear() -> None:
+    assert _reader_with_flag(FLAG_SYS_POKEDEX_GET, False).has_pokedex() is False
+
+
+def test_has_running_shoes_true_when_flag_set() -> None:
+    assert _reader_with_flag(FLAG_RECEIVED_RUNNING_SHOES, True).has_running_shoes() is True
+
+
+def test_has_running_shoes_false_when_flag_clear() -> None:
+    assert _reader_with_flag(FLAG_RECEIVED_RUNNING_SHOES, False).has_running_shoes() is False

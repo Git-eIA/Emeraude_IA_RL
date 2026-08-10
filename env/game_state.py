@@ -41,6 +41,11 @@ _FIRST_BADGE_FLAG = 0x867  # FLAG_BADGE01_GET .. FLAG_BADGE08_GET are contiguous
 # FLAG_SET_WALL_CLOCK from pret/pokeemerald include/constants/flags.h.
 # The intro is complete only once the bedroom wall clock has been set.
 FLAG_SET_WALL_CLOCK = 0x51
+# FLAG_SYS_POKEDEX_GET / FLAG_RECEIVED_RUNNING_SHOES from pret/pokeemerald
+# include/constants/flags.h. Candidate ids — the probe (tools/probe_phase2_facts.py)
+# confirms or replaces them on BPEF before the ROM smoke becomes load-bearing.
+FLAG_SYS_POKEDEX_GET = 0x801
+FLAG_RECEIVED_RUNNING_SHOES = 0x86F
 
 # Event vars array inside SaveBlock1. Offset verified empirically on BPEF
 # (2026-07-23 probe): VAR_LITTLEROOT_INTRO_STATE stepped 0->7 during the intro.
@@ -96,6 +101,14 @@ class EmeraldReader:
         if sb1 is None:
             return False
         return self._flag(sb1, flag_id)
+
+    def has_pokedex(self) -> bool:
+        """True once the Pokédex has been received (Birch lab cutscene)."""
+        return self.read_flag(FLAG_SYS_POKEDEX_GET)
+
+    def has_running_shoes(self) -> bool:
+        """True once the running shoes have been received (Route 101 cutscene)."""
+        return self.read_flag(FLAG_RECEIVED_RUNNING_SHOES)
 
     def party_levels(self) -> list[int]:
         """Levels of the party Pokémon in slot order; empty list when no party."""
