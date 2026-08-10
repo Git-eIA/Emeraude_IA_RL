@@ -26,8 +26,11 @@ LITTLEROOT = (0, 9)
 LAB = (1, 4)
 
 # Southbound return crossings, hand-seeded because a fresh savestate load carries
-# an empty MapMemory. from_cell/to_cell are candidates the Phase 2 probe pins
-# exactly; direction and reversibility are the real overworld/warp semantics.
+# an empty MapMemory. from_cell/to_cell are hand-seeded candidates; direction and
+# reversibility are the real overworld/warp semantics. NOTE: the intermediate
+# to_cell landing tiles ((0, 0) for Oldale/route_101) are ASSUMED, not probe-
+# verified — the Task 6 probe confirmed the flags/items/SaveBlock2 and start map,
+# not these crossings. The Task 7 ROM smoke validates the landings on first run.
 class _PortalSeed(NamedTuple):
     from_map: tuple[int, int]
     from_cell: tuple[int, int]

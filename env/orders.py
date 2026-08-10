@@ -59,7 +59,8 @@ GRIND_MAX_STEPS = 60    # bound the walk (code-safety #2)
 
 STORY_PRESS_A_FRAMES = 6
 STORY_RELEASE_FRAMES = 10
-STORY_MAX_PRESSES = 2000   # bound the cutscene A-spam (code-safety #2)
+STORY_MAX_PRESSES = 2000   # bound the cutscene A-spam (code-safety #2); the longest
+# Phase 2 cutscene (Pokédex + Balls + naming) A-spams well under this cap in practice.
 
 
 def execute_order(
