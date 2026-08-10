@@ -12,7 +12,7 @@ Order is emitted after arrival. No trained Strategist, no capture directive here
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
 from env.map_memory import MapMemory
 from env.orders import Order, execute_order, reached
@@ -27,11 +27,20 @@ LAB = (1, 4)
 # Southbound return crossings, hand-seeded because a fresh savestate load carries
 # an empty MapMemory. from_cell/to_cell are candidates the Phase 2 probe pins
 # exactly; direction and reversibility are the real overworld/warp semantics.
-_RETURN_PORTALS: tuple[tuple, ...] = (
-    (ROUTE_103, (0, 18), "down", OLDALE, True, (0, 0)),
-    (OLDALE, (0, 9), "down", ROUTE_101, True, (0, 0)),
-    (ROUTE_101, (0, 19), "down", LITTLEROOT, True, (10, 1)),
-    (LITTLEROOT, (3, 10), "up", LAB, False, (6, 12)),
+class _PortalSeed(NamedTuple):
+    from_map: tuple[int, int]
+    from_cell: tuple[int, int]
+    direction: str
+    to_map: tuple[int, int]
+    reversible: bool
+    to_cell: tuple[int, int]
+
+
+_RETURN_PORTALS: tuple[_PortalSeed, ...] = (
+    _PortalSeed(ROUTE_103, (0, 18), "down", OLDALE, True, (0, 0)),
+    _PortalSeed(OLDALE, (0, 9), "down", ROUTE_101, True, (0, 0)),
+    _PortalSeed(ROUTE_101, (0, 19), "down", LITTLEROOT, True, (10, 1)),
+    _PortalSeed(LITTLEROOT, (3, 10), "up", LAB, False, (6, 12)),
 )
 
 
