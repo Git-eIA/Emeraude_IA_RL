@@ -823,3 +823,101 @@ def test_battle_trainer_passes_through_travel_failure() -> None:
     order = Order(destination="route_103", mode="battle_trainer", combat="win")
     result = execute_order(order, world, world, MapMemory())
     assert result == "unknown_route"
+
+
+# ---------------------------------------------------------------------------
+# Story tests
+# ---------------------------------------------------------------------------
+
+
+class StoryWorld:
+    """Fake emulator+reader on a single map: a scripted cutscene predicate flips
+    true after N A-presses (models a lab/shoes A-spam until control/flag)."""
+
+    def __init__(
+        self,
+        map_id: tuple[int, int],
+        cell: tuple[int, int],
+        a_presses_to_done: int = 2,
+    ) -> None:
+        self.map_id = map_id
+        self.pos = cell
+        self._to_done = a_presses_to_done
+        self._a_count = 0
+
+    def step(self, keys: int, frames: int) -> None:
+        if keys & buttons.KEY_A:
+            self._a_count += 1
+
+    def snapshot(self) -> WorldSnapshot:
+        return WorldSnapshot(map_id=self.map_id, pos=self.pos, tile_behavior=None)
+
+    def party_hp(self) -> list[tuple[int, int]]:
+        return [(5, 5)]
+
+    def in_battle(self) -> bool:
+        return False
+
+    def battle_starting(self) -> bool:
+        return False
+
+    def event_done(self) -> bool:
+        return self._a_count >= self._to_done
+
+    @property
+    def grid_reader(self) -> _AllFreeGridReader:
+        return _AllFreeGridReader(50, 50)
+
+
+def test_story_unknown_destination_returns_unknown_destination() -> None:
+    world = StoryWorld((1, 4), (6, 12))
+    order = Order(destination="atlantide", mode="story", combat="win")
+    result = execute_order(
+        order, world, world, MapMemory(), story_target=lambda r: r.event_done()
+    )
+    assert result == "unknown_destination"
+
+
+def test_story_arrives_then_a_spams_until_target_holds() -> None:
+    world = StoryWorld((1, 4), (6, 12), a_presses_to_done=2)
+    order = Order(destination="lab", mode="story", combat="win")
+    result = execute_order(
+        order, world, world, MapMemory(), story_target=lambda r: r.event_done()
+    )
+    assert result == "story_done"
+
+
+def test_story_target_already_true_returns_immediately() -> None:
+    world = StoryWorld((1, 4), (6, 12), a_presses_to_done=0)
+    order = Order(destination="lab", mode="story", combat="win")
+    result = execute_order(
+        order, world, world, MapMemory(), story_target=lambda r: r.event_done()
+    )
+    assert result == "story_done"
+
+
+def test_story_that_never_completes_returns_story_timeout() -> None:
+    world = StoryWorld((1, 4), (6, 12), a_presses_to_done=10_000)
+    order = Order(destination="lab", mode="story", combat="win")
+    result = execute_order(
+        order, world, world, MapMemory(), story_target=lambda r: r.event_done()
+    )
+    assert result == "story_timeout"
+
+
+def test_story_passes_through_travel_failure() -> None:
+    # route_101_shoes is on a different map with no seeded route -> unknown_route,
+    # surfaced verbatim before any A-spam.
+    world = StoryWorld((0, 9), (3, 10))
+    order = Order(destination="route_101_shoes", mode="story", combat="win")
+    result = execute_order(
+        order, world, world, MapMemory(), story_target=lambda r: r.event_done()
+    )
+    assert result == "unknown_route"
+
+
+def test_story_without_target_returns_story_target_required() -> None:
+    world = StoryWorld((1, 4), (6, 12))
+    order = Order(destination="lab", mode="story", combat="win")
+    result = execute_order(order, world, world, MapMemory())
+    assert result == "story_target_required"

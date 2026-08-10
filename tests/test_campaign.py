@@ -1,7 +1,20 @@
 from __future__ import annotations
 
-from env.campaign import CAMPAIGN, Milestone, run_campaign
+from env.campaign import (
+    CAMPAIGN,
+    LAB,
+    LITTLEROOT,
+    Milestone,
+    OLDALE,
+    PHASE2_CAMPAIGN,
+    ROUTE_101,
+    ROUTE_103,
+    run_campaign,
+    seed_return_portals,
+)
+from env.map_memory import MapMemory
 from env.orders import Order
+from env.route_planner import plan_route
 
 
 def test_milestone_holds_destination_and_target_level():
@@ -173,3 +186,75 @@ def test_non_trainer_milestone_does_not_battle():
     )
     assert result == "campaign_complete"
     assert fn.calls == [("advance", "route_101", None)]
+
+
+def test_seed_return_portals_links_route_103_to_lab() -> None:
+    memory = MapMemory()
+    seed_return_portals(memory)
+    assert plan_route(memory, ROUTE_103, LAB) == [
+        ROUTE_103, OLDALE, ROUTE_101, LITTLEROOT, LAB,
+    ]
+
+
+def test_seed_return_portals_registers_each_southbound_crossing() -> None:
+    memory = MapMemory()
+    seed_return_portals(memory)
+    assert memory.portal(ROUTE_103, OLDALE) is not None
+    assert memory.portal(OLDALE, ROUTE_101) is not None
+    assert memory.portal(ROUTE_101, LITTLEROOT) is not None
+    assert memory.portal(LITTLEROOT, LAB) is not None
+
+
+def test_milestone_story_target_defaults_none() -> None:
+    assert Milestone("lab", 0).story_target is None
+
+
+def test_phase2_campaign_covers_return_pokedex_balls_shoes() -> None:
+    modes = [(m.destination, m.story_target is not None) for m in PHASE2_CAMPAIGN]
+    assert modes == [
+        ("littleroot", False),   # advance: return
+        ("lab", False),          # advance: enter lab
+        ("lab", True),           # story: Pokédex
+        ("lab", True),           # story: Poke Balls (idempotent post-assert)
+        ("route_101_shoes", True),  # story: running shoes
+    ]
+
+
+def test_story_milestone_emits_story_order_with_predicate() -> None:
+    def target(_r: object) -> bool:
+        return True
+
+    reader = FakeReader([8])   # over-leveled: no level_up
+    fn = RecordingOrderFn(["story_done"])
+    result = run_campaign(
+        None, reader, None,
+        curriculum=(Milestone("lab", 0, story_target=target),),
+        order_fn=fn,
+    )
+    assert result == "campaign_complete"
+    assert fn.calls == [("story", "lab", None)]
+    assert fn.kwargs[0]["story_target"] is target
+
+
+def test_story_milestone_failure_aborts_and_surfaces_outcome() -> None:
+    reader = FakeReader([8])
+    fn = RecordingOrderFn(["story_timeout"])
+    result = run_campaign(
+        None, reader, None,
+        curriculum=(Milestone("lab", 0, story_target=lambda r: False),),
+        order_fn=fn,
+    )
+    assert result == "story_timeout"
+    assert fn.calls == [("story", "lab", None)]
+
+
+def test_advance_milestone_still_emits_advance_when_no_story_target() -> None:
+    reader = FakeReader([8])
+    fn = RecordingOrderFn(["arrived"])
+    result = run_campaign(
+        None, reader, None,
+        curriculum=(Milestone("littleroot", 0),),
+        order_fn=fn,
+    )
+    assert result == "campaign_complete"
+    assert fn.calls == [("advance", "littleroot", None)]

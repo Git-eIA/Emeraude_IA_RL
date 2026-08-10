@@ -20,6 +20,9 @@ ReadFn = Callable[[int, int], bytes]
 # IWRAM pointer to the relocated SaveBlock1 struct.
 # Verified identical for BPEE and BPEF via pokebot-gen3 symbol tables.
 SAVE_BLOCK1_PTR = 0x03005D8C
+# IWRAM pointer to the relocated SaveBlock2 struct (holds the item encryption key).
+# Candidate — probe-confirmed on BPEF before the ROM smoke goes load-bearing.
+SAVE_BLOCK2_PTR = 0x03005D90
 
 # EWRAM address of gPlayerPartyCount (1 byte).
 # Verified identical for BPEE and BPEF via pokebot-gen3 symbol tables.
@@ -41,6 +44,11 @@ _FIRST_BADGE_FLAG = 0x867  # FLAG_BADGE01_GET .. FLAG_BADGE08_GET are contiguous
 # FLAG_SET_WALL_CLOCK from pret/pokeemerald include/constants/flags.h.
 # The intro is complete only once the bedroom wall clock has been set.
 FLAG_SET_WALL_CLOCK = 0x51
+# FLAG_SYS_POKEDEX_GET / FLAG_RECEIVED_RUNNING_SHOES from pret/pokeemerald
+# include/constants/flags.h. Candidate ids — the probe (tools/probe_phase2_facts.py)
+# confirms or replaces them on BPEF before the ROM smoke becomes load-bearing.
+FLAG_SYS_POKEDEX_GET = 0x801
+FLAG_RECEIVED_RUNNING_SHOES = 0x86F
 
 # Event vars array inside SaveBlock1. Offset verified empirically on BPEF
 # (2026-07-23 probe): VAR_LITTLEROOT_INTRO_STATE stepped 0->7 during the intro.
@@ -52,6 +60,15 @@ VAR_LITTLEROOT_TOWN_STATE = 0x4050
 
 _EWRAM_START = 0x02000000
 _EWRAM_END = 0x02040000
+
+# Bag Items pocket: contiguous ItemSlot array inside SaveBlock1. Item quantities
+# are XOR-encrypted with the low 16 bits of SaveBlock2.encryptionKey. Offsets are
+# candidates from pret/pokeemerald, confirmed by the Phase 2 probe.
+POKE_BALL_ITEM_ID = 0x4
+_ITEMS_POCKET_OFFSET = 0x560   # offsetof(SaveBlock1, bagPocket_Items) — candidate
+_SECURITY_KEY_OFFSET = 0xAC    # offsetof(SaveBlock2, encryptionKey)
+_ITEM_SLOT_SIZE = 4            # u16 itemId + u16 quantity
+_ITEMS_POCKET_CAPACITY = 30    # bound the scan (code-safety #2)
 
 
 @dataclass(frozen=True)
@@ -97,6 +114,14 @@ class EmeraldReader:
             return False
         return self._flag(sb1, flag_id)
 
+    def has_pokedex(self) -> bool:
+        """True once the Pokédex has been received (Birch lab cutscene)."""
+        return self.read_flag(FLAG_SYS_POKEDEX_GET)
+
+    def has_running_shoes(self) -> bool:
+        """True once the running shoes have been received (Route 101 cutscene)."""
+        return self.read_flag(FLAG_RECEIVED_RUNNING_SHOES)
+
     def party_levels(self) -> list[int]:
         """Levels of the party Pokémon in slot order; empty list when no party."""
         count = min(self._read(PARTY_COUNT_ADDR, 1)[0], 6)
@@ -116,11 +141,34 @@ class EmeraldReader:
             out.append((cur, mx))
         return out
 
+    def has_item(self, item_id: int, min_qty: int = 1) -> bool:
+        """True if the Items pocket holds >= min_qty of item_id (qty XOR-decrypted)."""
+        sb1 = self._save_block1()
+        sb2 = self._save_block2()
+        if sb1 is None or sb2 is None:
+            return False
+        key = int.from_bytes(self._read(sb2 + _SECURITY_KEY_OFFSET, 4), "little") & 0xFFFF
+        base = sb1 + _ITEMS_POCKET_OFFSET
+        for slot in range(_ITEMS_POCKET_CAPACITY):
+            entry = self._read(base + slot * _ITEM_SLOT_SIZE, _ITEM_SLOT_SIZE)
+            slot_id = int.from_bytes(entry[0:2], "little")
+            if slot_id != item_id:
+                continue
+            qty = int.from_bytes(entry[2:4], "little") ^ key
+            return qty >= min_qty
+        return False
+
     def _save_block1(self) -> int | None:
         sb1 = int.from_bytes(self._read(SAVE_BLOCK1_PTR, 4), "little")
         if not _EWRAM_START <= sb1 < _EWRAM_END:
             return None
         return sb1
+
+    def _save_block2(self) -> int | None:
+        sb2 = int.from_bytes(self._read(SAVE_BLOCK2_PTR, 4), "little")
+        if not _EWRAM_START <= sb2 < _EWRAM_END:
+            return None
+        return sb2
 
     def _flag(self, sb1: int, flag_id: int) -> bool:
         byte_index, bit_index = divmod(flag_id, 8)

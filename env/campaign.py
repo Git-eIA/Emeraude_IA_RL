@@ -11,10 +11,52 @@ Order is emitted after arrival. No trained Strategist, no capture directive here
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
+from env.map_memory import MapMemory
 from env.orders import Order, execute_order, reached
+
+# Map-group ids for the southbound return path (probe-confirmed).
+ROUTE_103 = (0, 18)
+OLDALE = (0, 10)
+ROUTE_101 = (0, 16)
+LITTLEROOT = (0, 9)
+LAB = (1, 4)
+
+# Southbound return crossings, hand-seeded because a fresh savestate load carries
+# an empty MapMemory. from_cell/to_cell are hand-seeded candidates; direction and
+# reversibility are the real overworld/warp semantics. NOTE: the intermediate
+# to_cell landing tiles ((0, 0) for Oldale/route_101) are ASSUMED, not probe-
+# verified — the Task 6 probe confirmed the flags/items/SaveBlock2 and start map,
+# not these crossings. The Task 7 ROM smoke validates the landings on first run.
+class _PortalSeed(NamedTuple):
+    from_map: tuple[int, int]
+    from_cell: tuple[int, int]
+    direction: str
+    to_map: tuple[int, int]
+    reversible: bool
+    to_cell: tuple[int, int]
+
+
+_RETURN_PORTALS: tuple[_PortalSeed, ...] = (
+    _PortalSeed(ROUTE_103, (0, 18), "down", OLDALE, True, (0, 0)),
+    _PortalSeed(OLDALE, (0, 9), "down", ROUTE_101, True, (0, 0)),
+    _PortalSeed(ROUTE_101, (0, 19), "down", LITTLEROOT, True, (10, 1)),
+    _PortalSeed(LITTLEROOT, (3, 10), "up", LAB, False, (6, 12)),
+)
+
+
+def seed_return_portals(memory: MapMemory) -> None:
+    """Register the 4 southbound return edges so travel_to can path home.
+
+    A fresh post_rival.state load has an empty MapMemory (not serialized), so
+    the first story milestone's travel_to would return 'unknown_route' on step
+    zero. This hand-seeds route_103 -> Oldale -> route_101 -> Littleroot -> lab.
+    """
+    for from_map, from_cell, direction, to_map, reversible, to_cell in _RETURN_PORTALS:
+        memory.record_portal(from_map, from_cell, direction, to_map, reversible, to_cell)
 
 
 @dataclass(frozen=True)
@@ -25,6 +67,7 @@ class Milestone:
     destination: str    # a name in orders.DESTINATIONS
     target_level: int   # mean, not max — one powerhouse shouldn't unlock advance
     trainer: bool = False   # end the milestone with a battle_trainer Order
+    story_target: Callable[[Any], bool] | None = None   # story mode: A-spam until this holds
 
 
 # Hand-written curriculum. Like DESTINATIONS, a name means something to the chef
@@ -32,6 +75,17 @@ class Milestone:
 CAMPAIGN: tuple[Milestone, ...] = (
     Milestone("route_101", 5),
     Milestone("route_103", 5, trainer=True),
+)
+
+# Phase 2 curriculum: return to Littleroot, enter Birch's lab, receive Pokédex +
+# 5 Poké Balls (one cutscene -> the Balls target is idempotent), then the running
+# shoes on Route 101. Return/enter are pure arrivals (advance); the rest are story.
+PHASE2_CAMPAIGN: tuple[Milestone, ...] = (
+    Milestone("littleroot", 0),
+    Milestone("lab", 0),
+    Milestone("lab", 0, story_target=lambda r: r.has_pokedex()),
+    Milestone("lab", 0, story_target=lambda r: r.has_item(0x4, 5)),
+    Milestone("route_101_shoes", 0, story_target=lambda r: r.has_running_shoes()),
 )
 
 
@@ -53,9 +107,20 @@ def run_campaign(
 
     Returns "campaign_complete" | any non-"leveled_up" outcome from a level_up
     Order | any non-"arrived" outcome from an advance Order | any non-"won"
-    outcome from a battle_trainer Order.
+    outcome from a battle_trainer Order | any non-"story_done" outcome from a
+    story Order.
     """
     for milestone in curriculum:
+        if milestone.story_target is not None:
+            told = order_fn(
+                Order(milestone.destination, "story", "win"),
+                emulator, reader, memory,
+                max_hops=max_hops, move_type_fn=move_type_fn, predict=predict,
+                story_target=milestone.story_target,
+            )
+            if told != "story_done":
+                return told
+            continue
         if not reached(reader.party_levels(), milestone.target_level):
             leveled = order_fn(
                 Order(milestone.destination, "level_up", "win"),
