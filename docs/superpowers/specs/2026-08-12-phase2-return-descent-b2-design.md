@@ -137,6 +137,23 @@ The placeholder `_RETURN_PORTALS` and `seed_return_portals(memory)` are **remove
 (portals are discovered live by `reach_map`); their MapMemory regression test is
 removed with them. `run_campaign` stays a pure sequencer.
 
+**The reach milestone carries a throwaway `destination` string** (e.g.
+`Milestone("lab", 0, reach=LAB)`): `run_campaign` checks `reach is not None` FIRST
+(a new branch at the head of the loop, before the story/level_up/advance branches)
+and dispatches `reach_map(goal=milestone.reach)`, ignoring `destination`. The string
+is only there because it is a positional field.
+
+**The shoes milestone points at `"lab"`, not `"route_101_shoes"`.** `_execute_story`
+is **travel-first** (`orders.py:335`): it calls `travel_to` and only short-circuits
+the predicate AFTER `arrived`. Since the player is at the lab after `reach_map` and
+`has_running_shoes` is already True, a `"route_101_shoes"` destination would force a
+northbound lab -> Littleroot -> route_101 trip (reversing the discovered DOWN
+portals — the door warp may be non-reversible) and abort before the predicate ever
+runs. Retargeting to `"lab"` makes `travel_to` a 0-step arrival at the current cell,
+then the already-True predicate returns `story_done` immediately — a genuine
+idempotent post-assert. This is a curriculum-data change only; the story Order mode
+is untouched.
+
 ### Unit 4 — ROM smoke (load-bearing)
 
 `tests/test_phase2_rom.py` runs the **full** campaign from **`post_starter.state`**
@@ -201,6 +218,17 @@ post_starter.state
 - **G6 — MapMemory empty at load.** A fresh `post_starter.state` carries an empty
   MapMemory; reach_map discovers portals live, so no seed is needed (the whole
   point of deleting `seed_return_portals`).
+- **G7 — story mode is travel-first (`orders.py:335`), not predicate-first.** Every
+  story milestone must name a destination the player can trivially reach from where
+  it currently stands, else `travel_to` aborts before the predicate short-circuits.
+  All three story milestones (Pokedex / Balls / shoes) therefore point at `"lab"`
+  (0-step arrival at the current cell). The shoes retarget from `"route_101_shoes"`
+  to `"lab"` is the concrete consequence.
+- **G8 — deleting `seed_return_portals` must not break other callers.** Before
+  removal, grep every caller (tests, tools) of `seed_return_portals` /
+  `_RETURN_PORTALS`; the merged `test_campaign_rom.py` and the old Phase 2 smoke
+  both seed. Each caller is either updated (drop the seed) or its assertion moves to
+  the new post_starter smoke.
 
 ## Scope / non-goals
 
