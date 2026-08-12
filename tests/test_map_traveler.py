@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 from emulator import buttons
+from env import map_traveler
 from env.grid_navigator import DIRECTIONS
+from env.map_grid_reader import TileKind
 from env.map_memory import MapMemory, WorldEvent
-from env.map_traveler import travel_to
+from env.map_traveler import _cross_border, _cross_in_direction, _cross_up_warp, reach_map, travel_to
 from env.world_reader import WorldSnapshot
 
 _KEY_TO_DIR: dict[int, str] = {
@@ -300,3 +302,225 @@ def test_battle_loss_propagates_from_the_first_hop() -> None:
         move_type_fn=lambda mid: 12, predict=lambda obs: 0,
     )
     assert result == "battle_lost"
+
+
+# ---------------------------------------------------------------------------
+# Task 2: crossing helpers
+# ---------------------------------------------------------------------------
+
+
+class _OneMapWorld:
+    """Single-map fake that can be flipped to another map by a helper stub."""
+
+    def __init__(self, map_id=(0, 16), pos=(10, 17)) -> None:
+        self.map_id = map_id
+        self.pos = pos
+        self.grid_reader = object()   # GridSnapshot.from_reader is monkeypatched, so opaque
+
+    def step(self, keys: int, frames: int) -> None:
+        pass
+
+    def snapshot(self):
+        return WorldSnapshot(map_id=self.map_id, pos=self.pos, tile_behavior=None)
+
+    def in_battle(self) -> bool:
+        return False
+
+    def battle_starting(self) -> bool:
+        return False
+
+
+class _FakeSnap:
+    """Fake GridSnapshot: FREE only at the given cells, WALL elsewhere."""
+
+    def __init__(self, free, w=20, h=20) -> None:
+        self._free = set(free)
+        self.width, self.height = w, h
+
+    def classify_at(self, x, y):
+        return TileKind.FREE if (x, y) in self._free else TileKind.WALL
+
+
+def test_cross_in_direction_dispatches_up_to_warp(monkeypatch):
+    seen = []
+    monkeypatch.setattr(map_traveler, "_cross_up_warp",
+                        lambda *a, **k: seen.append("up") or "crossed")
+    monkeypatch.setattr(map_traveler, "_cross_border",
+                        lambda *a, **k: seen.append("border") or "crossed")
+    world = _OneMapWorld()
+    assert _cross_in_direction(world, world, MapMemory(), (0, 9), "up") == "crossed"
+    assert seen == ["up"]
+
+
+def test_cross_in_direction_dispatches_down_to_border(monkeypatch):
+    seen = []
+    monkeypatch.setattr(map_traveler, "_cross_up_warp",
+                        lambda *a, **k: seen.append("up") or "crossed")
+    monkeypatch.setattr(map_traveler, "_cross_border",
+                        lambda *a, **k: seen.append("border") or "crossed")
+    world = _OneMapWorld()
+    assert _cross_in_direction(world, world, MapMemory(), (0, 16), "down") == "crossed"
+    assert seen == ["border"]
+
+
+def _stub_border_env(monkeypatch, world):
+    """Wire the directional-scan boundary: opaque snap, reachable cells, no battle."""
+    monkeypatch.setattr(map_traveler.GridSnapshot, "from_reader",
+                        staticmethod(lambda *a: _FakeSnap({(10, 19), (10, 17)})))
+    monkeypatch.setattr(map_traveler, "plan_path_grid", lambda snap, a, b: ["down"])
+    monkeypatch.setattr(map_traveler, "handle_battle_interruption", lambda *a, **k: None)
+
+    def fake_nav(emu, rdr, cell, **kw):
+        world.pos = cell
+        return "arrived"
+
+    monkeypatch.setattr(map_traveler, "navigate_grid", fake_nav)
+
+
+def test_cross_border_crosses_the_south_border_and_records(monkeypatch):
+    world = _OneMapWorld(map_id=(0, 16), pos=(10, 17))
+    memory = MapMemory()
+    _stub_border_env(monkeypatch, world)
+
+    def fake_probe(emu, rdr, before, direction):
+        world.map_id = (0, 9)   # pressing DOWN on the border cell flips to Littleroot
+        return "transition"
+
+    monkeypatch.setattr(map_traveler, "probe_step", fake_probe)
+    assert _cross_border(world, world, memory, (0, 16), "down", None, None) == "crossed"
+    assert world.map_id == (0, 9)
+    assert memory.portal((0, 16), (0, 9)) is not None
+
+
+def test_cross_border_reports_no_crossing_when_border_never_flips(monkeypatch):
+    world = _OneMapWorld(map_id=(0, 16), pos=(10, 17))
+    _stub_border_env(monkeypatch, world)
+    monkeypatch.setattr(map_traveler, "probe_step", lambda *a: "blocked")   # never crosses
+    assert _cross_border(world, world, MapMemory(), (0, 16), "down", None, None) == "no_crossing"
+
+
+def test_cross_border_passes_through_a_battle_outcome(monkeypatch):
+    world = _OneMapWorld(map_id=(0, 16), pos=(10, 17))
+    monkeypatch.setattr(map_traveler.GridSnapshot, "from_reader",
+                        staticmethod(lambda *a: _FakeSnap({(10, 19)})))
+    monkeypatch.setattr(map_traveler, "plan_path_grid", lambda snap, a, b: ["down"])
+    monkeypatch.setattr(map_traveler, "handle_battle_interruption",
+                        lambda *a, **k: "battle_lost")
+    assert _cross_border(world, world, MapMemory(), (0, 16), "down", None, None) == "battle_lost"
+
+
+def test_cross_up_warp_walks_onto_a_warp_tile_and_records(monkeypatch):
+    world = _OneMapWorld(map_id=(0, 9), pos=(8, 18))
+    memory = MapMemory()
+    monkeypatch.setattr(map_traveler, "_doorstep_cells", lambda snap: [(8, 17)])
+    monkeypatch.setattr(map_traveler, "GridSnapshot",
+                        type("_GS", (), {"from_reader": staticmethod(lambda *a: object())}))
+
+    def fake_walk(emu, rdr, snap, cell, from_map):
+        world.pos = cell
+        world.map_id = (1, 4)  # walking onto the warp tile triggers the transition
+        return True
+
+    monkeypatch.setattr(map_traveler, "_precision_walk_to", fake_walk)
+    assert _cross_up_warp(world, world, memory, (0, 9), None, None) == "crossed"
+    assert memory.portal((0, 9), (1, 4)) is not None
+
+
+def test_cross_up_warp_reports_no_crossing_without_a_warp_tile(monkeypatch):
+    world = _OneMapWorld(map_id=(0, 9))
+    monkeypatch.setattr(map_traveler, "_doorstep_cells", lambda snap: [])
+    monkeypatch.setattr(map_traveler, "GridSnapshot",
+                        type("_GS", (), {"from_reader": staticmethod(lambda *a: object())}))
+    assert _cross_up_warp(world, world, MapMemory(), (0, 9), None, None) == "no_crossing"
+
+
+def test_cross_up_warp_selects_a_wall_above_doorstep_not_an_mb_warp_tile(monkeypatch):
+    """The Littleroot->lab door is a map warp_event, not an MB_WARP (0x60) tile, so
+    _cross_up_warp must pick doorstep cells geometrically (standable, WALL directly
+    above) rather than by tile behaviour. (7,16) is WALL, so (7,17) is a doorstep;
+    _FakeSnap exposes no tile_behavior, so a behaviour scan would find nothing."""
+    world = _OneMapWorld(map_id=(0, 9), pos=(7, 18))
+    memory = MapMemory()
+    # (7,17) standable with WALL above (7,16 not free) => a doorstep candidate.
+    monkeypatch.setattr(map_traveler.GridSnapshot, "from_reader",
+                        staticmethod(lambda *a: _FakeSnap({(7, 18), (7, 17)})))
+
+    def fake_walk(emu, rdr, snap, cell, from_map):
+        world.pos = cell
+        world.map_id = (1, 4)   # walking onto the doorstep triggers the warp
+        return True
+
+    monkeypatch.setattr(map_traveler, "_precision_walk_to", fake_walk)
+    assert _cross_up_warp(world, world, memory, (0, 9), None, None) == "crossed"
+    assert memory.portal((0, 9), (1, 4)) is not None
+
+
+# ---------------------------------------------------------------------------
+# Task 3: reach_map greedy-descent loop
+# ---------------------------------------------------------------------------
+
+class _ScriptedDescentWorld:
+    """Fake whose map flips through a scripted sequence each time a crossing fires."""
+
+    def __init__(self, sequence: list[tuple[int, int]]) -> None:
+        self._sequence = sequence
+        self.map_id = sequence[0]
+        self.pos = (10, 17)
+        self._i = 0
+
+    def advance(self) -> None:
+        if self._i < len(self._sequence) - 1:
+            self._i += 1
+            self.map_id = self._sequence[self._i]
+
+    def step(self, keys: int, frames: int) -> None:
+        pass
+
+    def snapshot(self):
+        return WorldSnapshot(map_id=self.map_id, pos=self.pos, tile_behavior=None)
+
+    def in_battle(self) -> bool:
+        return False
+
+    def battle_starting(self) -> bool:
+        return False
+
+
+def test_reach_map_arrives_over_two_hops(monkeypatch):
+    world = _ScriptedDescentWorld([(0, 16), (0, 9), (1, 4)])
+    directions = {(0, 16): "down", (0, 9): "up"}
+
+    def fake_cross(emu, rdr, mem, from_map, direction, **kw):
+        world.advance()
+        return "crossed"
+
+    monkeypatch.setattr(map_traveler, "_cross_in_direction", fake_cross)
+    assert reach_map(world, world, MapMemory(), (1, 4), directions) == "arrived"
+
+
+def test_reach_map_already_on_goal_returns_arrived():
+    world = _ScriptedDescentWorld([(1, 4)])
+    assert reach_map(world, world, MapMemory(), (1, 4), {}) == "arrived"
+
+
+def test_reach_map_stalls_on_an_unexpected_map():
+    world = _ScriptedDescentWorld([(0, 16)])
+    assert reach_map(world, world, MapMemory(), (1, 4), {(0, 9): "up"}) == "stall"
+
+
+def test_reach_map_stalls_when_no_crossing_fires(monkeypatch):
+    world = _ScriptedDescentWorld([(0, 16)])
+    monkeypatch.setattr(map_traveler, "_cross_in_direction", lambda *a, **k: "no_crossing")
+    assert reach_map(world, world, MapMemory(), (1, 4), {(0, 16): "down"}) == "stall"
+
+
+def test_reach_map_passes_through_a_battle_outcome(monkeypatch):
+    world = _ScriptedDescentWorld([(0, 16)])
+    monkeypatch.setattr(map_traveler, "_cross_in_direction", lambda *a, **k: "battle_lost")
+    assert reach_map(world, world, MapMemory(), (1, 4), {(0, 16): "down"}) == "battle_lost"
+
+
+def test_reach_map_times_out_when_hops_exhaust(monkeypatch):
+    world = _ScriptedDescentWorld([(0, 16)])
+    monkeypatch.setattr(map_traveler, "_cross_in_direction", lambda *a, **k: "crossed")
+    assert reach_map(world, world, MapMemory(), (1, 4), {(0, 16): "down"}, max_hops=3) == "timeout"
