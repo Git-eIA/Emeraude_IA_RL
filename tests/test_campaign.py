@@ -1,20 +1,18 @@
 from __future__ import annotations
 
+from env import campaign
 from env.campaign import (
     CAMPAIGN,
     LAB,
     LITTLEROOT,
     Milestone,
-    OLDALE,
     PHASE2_CAMPAIGN,
     ROUTE_101,
-    ROUTE_103,
+    _RETURN_DIRECTIONS,
     run_campaign,
-    seed_return_portals,
 )
 from env.map_memory import MapMemory
 from env.orders import Order
-from env.route_planner import plan_route
 
 
 def test_milestone_holds_destination_and_target_level():
@@ -188,36 +186,8 @@ def test_non_trainer_milestone_does_not_battle():
     assert fn.calls == [("advance", "route_101", None)]
 
 
-def test_seed_return_portals_links_route_103_to_lab() -> None:
-    memory = MapMemory()
-    seed_return_portals(memory)
-    assert plan_route(memory, ROUTE_103, LAB) == [
-        ROUTE_103, OLDALE, ROUTE_101, LITTLEROOT, LAB,
-    ]
-
-
-def test_seed_return_portals_registers_each_southbound_crossing() -> None:
-    memory = MapMemory()
-    seed_return_portals(memory)
-    assert memory.portal(ROUTE_103, OLDALE) is not None
-    assert memory.portal(OLDALE, ROUTE_101) is not None
-    assert memory.portal(ROUTE_101, LITTLEROOT) is not None
-    assert memory.portal(LITTLEROOT, LAB) is not None
-
-
 def test_milestone_story_target_defaults_none() -> None:
     assert Milestone("lab", 0).story_target is None
-
-
-def test_phase2_campaign_covers_return_pokedex_balls_shoes() -> None:
-    modes = [(m.destination, m.story_target is not None) for m in PHASE2_CAMPAIGN]
-    assert modes == [
-        ("littleroot", False),   # advance: return
-        ("lab", False),          # advance: enter lab
-        ("lab", True),           # story: Pokédex
-        ("lab", True),           # story: Poke Balls (idempotent post-assert)
-        ("route_101_shoes", True),  # story: running shoes
-    ]
 
 
 def test_story_milestone_emits_story_order_with_predicate() -> None:
@@ -258,3 +228,38 @@ def test_advance_milestone_still_emits_advance_when_no_story_target() -> None:
     )
     assert result == "campaign_complete"
     assert fn.calls == [("advance", "littleroot", None)]
+
+
+def test_reach_milestone_dispatches_reach_map(monkeypatch):
+    calls = []
+
+    def fake_reach(emu, rdr, mem, goal, directions, **kw):
+        calls.append((goal, directions))
+        return "arrived"
+
+    monkeypatch.setattr(campaign, "reach_map", fake_reach)
+    result = run_campaign(
+        None, FakeReader([5]), MapMemory(),
+        curriculum=(Milestone("lab", 0, reach=LAB),),
+    )
+    assert result == "campaign_complete"
+    assert calls == [(LAB, _RETURN_DIRECTIONS)]
+
+
+def test_reach_milestone_aborts_on_non_arrived(monkeypatch):
+    monkeypatch.setattr(campaign, "reach_map", lambda *a, **k: "stall")
+    result = run_campaign(
+        None, FakeReader([5]), MapMemory(),
+        curriculum=(Milestone("lab", 0, reach=LAB),),
+    )
+    assert result == "stall"
+
+
+def test_return_directions_are_route101_down_littleroot_up():
+    assert _RETURN_DIRECTIONS == {ROUTE_101: "down", LITTLEROOT: "up"}
+
+
+def test_phase2_campaign_opens_with_a_reach_home_milestone():
+    assert PHASE2_CAMPAIGN[0].reach == LAB
+    # Every story milestone targets the lab (travel-first mode; 0-step arrival).
+    assert all(m.destination == "lab" for m in PHASE2_CAMPAIGN if m.story_target is not None)

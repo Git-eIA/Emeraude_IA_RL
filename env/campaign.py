@@ -13,61 +13,33 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, NamedTuple
+from typing import Any
 
-from env.map_memory import MapMemory
+from env.map_traveler import reach_map
 from env.orders import Order, execute_order, reached
 
-# Map-group ids for the southbound return path (probe-confirmed).
-ROUTE_103 = (0, 18)
-OLDALE = (0, 10)
+# Map-group ids on the southbound return path.
 ROUTE_101 = (0, 16)
 LITTLEROOT = (0, 9)
 LAB = (1, 4)
 
-# Southbound return crossings, hand-seeded because a fresh savestate load carries
-# an empty MapMemory. from_cell/to_cell are hand-seeded candidates; direction and
-# reversibility are the real overworld/warp semantics. NOTE: the intermediate
-# to_cell landing tiles ((0, 0) for Oldale/route_101) are ASSUMED, not probe-
-# verified — the Task 6 probe confirmed the flags/items/SaveBlock2 and start map,
-# not these crossings. The Task 7 ROM smoke validates the landings on first run.
-class _PortalSeed(NamedTuple):
-    from_map: tuple[int, int]
-    from_cell: tuple[int, int]
-    direction: str
-    to_map: tuple[int, int]
-    reversible: bool
-    to_cell: tuple[int, int]
-
-
-_RETURN_PORTALS: tuple[_PortalSeed, ...] = (
-    _PortalSeed(ROUTE_103, (0, 18), "down", OLDALE, True, (0, 0)),
-    _PortalSeed(OLDALE, (0, 9), "down", ROUTE_101, True, (0, 0)),
-    _PortalSeed(ROUTE_101, (0, 19), "down", LITTLEROOT, True, (10, 1)),
-    _PortalSeed(LITTLEROOT, (3, 10), "up", LAB, False, (6, 12)),
-)
-
-
-def seed_return_portals(memory: MapMemory) -> None:
-    """Register the 4 southbound return edges so travel_to can path home.
-
-    A fresh post_rival.state load has an empty MapMemory (not serialized), so
-    the first story milestone's travel_to would return 'unknown_route' on step
-    zero. This hand-seeds route_103 -> Oldale -> route_101 -> Littleroot -> lab.
-    """
-    for from_map, from_cell, direction, to_map, reversible, to_cell in _RETURN_PORTALS:
-        memory.record_portal(from_map, from_cell, direction, to_map, reversible, to_cell)
+# Return chain for reach_map: cross route_101 south (down) into Littleroot, then the
+# lab door warp (up). Oldale/route_103 are dropped — the north-entry Oldale hop is not
+# crossable in a continuous descent (see the B2 spec), and B2 starts on route_101.
+_RETURN_DIRECTIONS: dict[tuple[int, int], str] = {ROUTE_101: "down", LITTLEROOT: "up"}
 
 
 @dataclass(frozen=True)
 class Milestone:
     """One curriculum step: reach `destination` once the mean party level is at
-    least `target_level`; if `trainer`, fight the trainer there on arrival."""
+    least `target_level`; if `trainer`, fight the trainer there on arrival; if
+    `reach` is set, greedy-descend to that goal map via reach_map instead."""
 
     destination: str    # a name in orders.DESTINATIONS
     target_level: int   # mean, not max — one powerhouse shouldn't unlock advance
     trainer: bool = False   # end the milestone with a battle_trainer Order
     story_target: Callable[[Any], bool] | None = None   # story mode: A-spam until this holds
+    reach: tuple[int, int] | None = None   # reach-home mode: reach_map(goal=reach)
 
 
 # Hand-written curriculum. Like DESTINATIONS, a name means something to the chef
@@ -77,15 +49,15 @@ CAMPAIGN: tuple[Milestone, ...] = (
     Milestone("route_103", 5, trainer=True),
 )
 
-# Phase 2 curriculum: return to Littleroot, enter Birch's lab, receive Pokédex +
-# 5 Poké Balls (one cutscene -> the Balls target is idempotent), then the running
-# shoes on Route 101. Return/enter are pure arrivals (advance); the rest are story.
+# Phase 2 curriculum (B2). Start on route_101 (post_starter.state): greedy-descend home
+# to the lab, then A-spam the Pokédex + 5 Poké Balls cutscene. The shoes flag is already
+# set at post_starter, so its milestone is an idempotent post-assert AT THE LAB (the story
+# mode is travel-first, so it must not name a cell away from where the player stands).
 PHASE2_CAMPAIGN: tuple[Milestone, ...] = (
-    Milestone("littleroot", 0),
-    Milestone("lab", 0),
+    Milestone("lab", 0, reach=LAB),
     Milestone("lab", 0, story_target=lambda r: r.has_pokedex()),
     Milestone("lab", 0, story_target=lambda r: r.has_item(0x4, 5)),
-    Milestone("route_101_shoes", 0, story_target=lambda r: r.has_running_shoes()),
+    Milestone("lab", 0, story_target=lambda r: r.has_running_shoes()),
 )
 
 
@@ -111,6 +83,14 @@ def run_campaign(
     story Order.
     """
     for milestone in curriculum:
+        if milestone.reach is not None:
+            arrived = reach_map(
+                emulator, reader, memory, milestone.reach, _RETURN_DIRECTIONS,
+                move_type_fn=move_type_fn, predict=predict,
+            )
+            if arrived != "arrived":
+                return arrived
+            continue
         if milestone.story_target is not None:
             told = order_fn(
                 Order(milestone.destination, "story", "win"),
