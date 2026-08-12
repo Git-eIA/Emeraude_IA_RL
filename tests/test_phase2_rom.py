@@ -1,9 +1,9 @@
-"""Gated ROM smoke: run PHASE2_CAMPAIGN from post_rival.state end to end.
+"""Gated ROM smoke: run PHASE2_CAMPAIGN (B2) from post_starter.state end to end.
 
-Load-bearing once tools/probe_phase2_facts.py has confirmed the constants: seeds
-the return portals, drives the scripted campaign (return -> lab -> Pokedex ->
-Balls -> shoes) with the real Fighter, and asserts the deliverables landed. Dumps
-states/post_phase2.state for the next phase.
+reach_map greedy-descends route_101 -> Littleroot -> lab (portals discovered live, no
+seed), then the story A-spam delivers the Pokédex + 5 Poké Balls. Asserts the
+deliverables landed and dumps states/post_phase2.state. Triple-skips without ROM /
+Fighter checkpoint / post_starter.state.
 """
 from __future__ import annotations
 
@@ -14,21 +14,21 @@ import pytest
 
 ROM = os.environ.get("POKEMON_EMERALD_ROM")
 FIGHTER_CKPT = "checkpoints/fighter/ppo_fighter_final.zip"
-START_STATE = "states/post_rival.state"
+START_STATE = "states/post_starter.state"
 
 pytestmark = [
     pytest.mark.skipif(not ROM, reason="POKEMON_EMERALD_ROM not set"),
     pytest.mark.skipif(not Path(FIGHTER_CKPT).exists(), reason="Fighter checkpoint missing"),
-    pytest.mark.skipif(not Path(START_STATE).exists(), reason="post_rival.state missing"),
+    pytest.mark.skipif(not Path(START_STATE).exists(), reason="post_starter.state missing"),
 ]
 
 
-def test_phase2_campaign_delivers_pokedex_and_running_shoes() -> None:
+def test_phase2_campaign_delivers_pokedex_and_balls() -> None:
     from stable_baselines3 import PPO
 
     from agent.train_fighter import make_move_type_fn
     from emulator.gba import GbaEmulator
-    from env.campaign import PHASE2_CAMPAIGN, seed_return_portals, run_campaign
+    from env.campaign import PHASE2_CAMPAIGN, run_campaign
     from env.game_state import EmeraldReader
     from env.map_memory import MapMemory
     from env.world_reader import WorldReader
@@ -41,7 +41,6 @@ def test_phase2_campaign_delivers_pokedex_and_running_shoes() -> None:
     reader = EmeraldReader(emu.read_bytes)
     world = WorldReader(emu.read_bytes)
     memory = MapMemory()
-    seed_return_portals(memory)
 
     model = PPO.load(FIGHTER_CKPT, device="cpu")
 
@@ -67,6 +66,6 @@ def test_phase2_campaign_delivers_pokedex_and_running_shoes() -> None:
 
     assert result == "campaign_complete", result
     assert reader.has_pokedex()
-    assert reader.has_running_shoes()
+    assert reader.has_item(0x4, 5)
 
     Path("states/post_phase2.state").write_bytes(emu.save_state())
