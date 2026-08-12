@@ -412,7 +412,7 @@ def test_cross_border_passes_through_a_battle_outcome(monkeypatch):
 def test_cross_up_warp_walks_onto_a_warp_tile_and_records(monkeypatch):
     world = _OneMapWorld(map_id=(0, 9), pos=(8, 18))
     memory = MapMemory()
-    monkeypatch.setattr(map_traveler, "_warp_cells", lambda rdr, snap: [(8, 17)])
+    monkeypatch.setattr(map_traveler, "_doorstep_cells", lambda snap: [(8, 17)])
     monkeypatch.setattr(map_traveler, "GridSnapshot",
                         type("_GS", (), {"from_reader": staticmethod(lambda *a: object())}))
 
@@ -428,10 +428,31 @@ def test_cross_up_warp_walks_onto_a_warp_tile_and_records(monkeypatch):
 
 def test_cross_up_warp_reports_no_crossing_without_a_warp_tile(monkeypatch):
     world = _OneMapWorld(map_id=(0, 9))
-    monkeypatch.setattr(map_traveler, "_warp_cells", lambda rdr, snap: [])
+    monkeypatch.setattr(map_traveler, "_doorstep_cells", lambda snap: [])
     monkeypatch.setattr(map_traveler, "GridSnapshot",
                         type("_GS", (), {"from_reader": staticmethod(lambda *a: object())}))
     assert _cross_up_warp(world, world, MapMemory(), (0, 9), None, None) == "no_crossing"
+
+
+def test_cross_up_warp_selects_a_wall_above_doorstep_not_an_mb_warp_tile(monkeypatch):
+    """The Littleroot->lab door is a map warp_event, not an MB_WARP (0x60) tile, so
+    _cross_up_warp must pick doorstep cells geometrically (standable, WALL directly
+    above) rather than by tile behaviour. (7,16) is WALL, so (7,17) is a doorstep;
+    _FakeSnap exposes no tile_behavior, so a behaviour scan would find nothing."""
+    world = _OneMapWorld(map_id=(0, 9), pos=(7, 18))
+    memory = MapMemory()
+    # (7,17) standable with WALL above (7,16 not free) => a doorstep candidate.
+    monkeypatch.setattr(map_traveler.GridSnapshot, "from_reader",
+                        staticmethod(lambda *a: _FakeSnap({(7, 18), (7, 17)})))
+
+    def fake_walk(emu, rdr, snap, cell, from_map):
+        world.pos = cell
+        world.map_id = (1, 4)   # walking onto the doorstep triggers the warp
+        return True
+
+    monkeypatch.setattr(map_traveler, "_precision_walk_to", fake_walk)
+    assert _cross_up_warp(world, world, memory, (0, 9), None, None) == "crossed"
+    assert memory.portal((0, 9), (1, 4)) is not None
 
 
 # ---------------------------------------------------------------------------

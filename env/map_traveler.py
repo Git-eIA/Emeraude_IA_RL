@@ -106,7 +106,6 @@ def _snapshot_settled(reader: Any) -> Any:
 # Crossing helpers (Task 2)
 # ---------------------------------------------------------------------------
 
-_MB_WARP = 0x60          # pokeemerald metatile_behaviors.h MB_WARP (interior door tile)
 _WARP_SETTLE_FRAMES = 64  # let the warp engine complete after stepping onto the tile
 _UP_HOLD_FRAMES = 24
 _PRECISION_STEP_FRAMES = 4
@@ -150,14 +149,20 @@ def _precision_walk_to(
     return False
 
 
-def _warp_cells(reader: Any, snap: Any) -> list[tuple[int, int]]:
-    """FREE cells whose tile behavior is MB_WARP (0x60): interior door tiles."""
+def _doorstep_cells(snap: Any) -> list[tuple[int, int]]:
+    """Standable cells with a WALL directly above (building doorsteps), southmost-first.
+
+    The Littleroot->lab door is a map warp_event, NOT an MB_WARP (0x60) tile — a
+    behaviour scan finds only the player's-house door. Doors render a WALL row above
+    the doorstep, so scan geometry instead: any standable cell whose north neighbour
+    is WALL is a candidate. Pressing UP from there triggers the warp event."""
     out: list[tuple[int, int]] = []
-    for y in range(snap.height):
+    for y in range(snap.height - 1, -1, -1):   # southmost first
         for x in range(snap.width):
-            if snap.classify_at(x, y) != TileKind.FREE:
+            if snap.classify_at(x, y) not in _STANDABLE:
                 continue
-            if reader.grid_reader.tile_behavior_at(x, y) == _MB_WARP:
+            above = snap.classify_at(x, y - 1) if y > 0 else None
+            if above is TileKind.WALL:
                 out.append((x, y))
     return out
 
@@ -270,7 +275,7 @@ def _cross_up_warp(
     snap = GridSnapshot.from_reader(reader.grid_reader, from_map)
     if snap is None:
         return "no_crossing"
-    for cell in _warp_cells(reader, snap):
+    for cell in _doorstep_cells(snap):
         cur = _snapshot_settled(reader)
         if cur is None or cur.map_id != from_map:
             return "no_crossing"
