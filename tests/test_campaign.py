@@ -259,7 +259,8 @@ def test_return_directions_are_route101_down_littleroot_up():
     assert _RETURN_DIRECTIONS == {ROUTE_101: "down", LITTLEROOT: "up"}
 
 
-def test_phase2_campaign_opens_with_a_reach_home_milestone():
-    assert PHASE2_CAMPAIGN[0].reach == LAB
-    # Every story milestone targets the lab (travel-first mode; 0-step arrival).
-    assert all(m.destination == "lab" for m in PHASE2_CAMPAIGN if m.story_target is not None)
+def test_phase2_campaign_is_a_single_reach_home_milestone():
+    # post_starter is before the route_103 rival, so the Pokédex cutscene is not armed
+    # (proven: entering the lab fires nothing). The B2 deliverable is the descent itself,
+    # so the campaign is exactly one reach-lab milestone — no story milestones.
+    assert PHASE2_CAMPAIGN == (Milestone("lab", 0, reach=LAB),)

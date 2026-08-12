@@ -49,15 +49,15 @@ CAMPAIGN: tuple[Milestone, ...] = (
     Milestone("route_103", 5, trainer=True),
 )
 
-# Phase 2 curriculum (B2). Start on route_101 (post_starter.state): greedy-descend home
-# to the lab, then A-spam the Pokédex + 5 Poké Balls cutscene. The shoes flag is already
-# set at post_starter, so its milestone is an idempotent post-assert AT THE LAB (the story
-# mode is travel-first, so it must not name a cell away from where the player stands).
+# Phase 2 curriculum (B2). Start on route_101 (post_starter.state) and greedy-descend
+# home to the lab. The Pokédex/Balls/shoes cutscene is NOT reachable from here: post_starter
+# is BEFORE the route_103 rival, and Emerald arms the Pokédex event only on the SECOND lab
+# visit (after that rival). Entering the lab from post_starter fires no cutscene (proven:
+# the player walks freely, no dialogue lock, has_pokedex stays False). So the deliverable is
+# the durable descent itself — arrival at the lab. The Pokédex objective moves to a future
+# phase that solves the post-rival return (the uncrossable Oldale crux).
 PHASE2_CAMPAIGN: tuple[Milestone, ...] = (
     Milestone("lab", 0, reach=LAB),
-    Milestone("lab", 0, story_target=lambda r: r.has_pokedex()),
-    Milestone("lab", 0, story_target=lambda r: r.has_item(0x4, 5)),
-    Milestone("lab", 0, story_target=lambda r: r.has_running_shoes()),
 )
 
 

@@ -1,9 +1,11 @@
 """Gated ROM smoke: run PHASE2_CAMPAIGN (B2) from post_starter.state end to end.
 
 reach_map greedy-descends route_101 -> Littleroot -> lab (portals discovered live, no
-seed), then the story A-spam delivers the Pokédex + 5 Poké Balls. Asserts the
-deliverables landed and dumps states/post_phase2.state. Triple-skips without ROM /
-Fighter checkpoint / post_starter.state.
+seed). The deliverable is the descent itself: post_starter is BEFORE the route_103 rival,
+so Emerald's Pokédex cutscene is not armed and re-entering the lab fires nothing — the
+campaign objective is arrival at the lab. Asserts the player settled in the lab map and
+dumps states/post_phase2.state. Triple-skips without ROM / Fighter checkpoint /
+post_starter.state.
 """
 from __future__ import annotations
 
@@ -23,12 +25,12 @@ pytestmark = [
 ]
 
 
-def test_phase2_campaign_delivers_pokedex_and_balls() -> None:
+def test_phase2_campaign_descends_home_to_the_lab() -> None:
     from stable_baselines3 import PPO
 
     from agent.train_fighter import make_move_type_fn
     from emulator.gba import GbaEmulator
-    from env.campaign import PHASE2_CAMPAIGN, run_campaign
+    from env.campaign import LAB, PHASE2_CAMPAIGN, run_campaign
     from env.game_state import EmeraldReader
     from env.map_memory import MapMemory
     from env.world_reader import WorldReader
@@ -65,7 +67,7 @@ def test_phase2_campaign_delivers_pokedex_and_balls() -> None:
     )
 
     assert result == "campaign_complete", result
-    assert reader.has_pokedex()
-    assert reader.has_item(0x4, 5)
+    settled = world.snapshot()
+    assert settled is not None and settled.map_id == LAB, settled
 
     Path("states/post_phase2.state").write_bytes(emu.save_state())
