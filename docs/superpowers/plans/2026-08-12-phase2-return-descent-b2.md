@@ -4,7 +4,9 @@
 
 **Goal:** Physically return the player from route_101 to Birch's lab so the merged Phase 2 story campaign can deliver the Pokédex + 5 Poké Balls, driven by a durable generic `reach_map` greedy descent.
 
-**Architecture:** Add `reach_map` beside `travel_to` in `env/map_traveler.py`: a generic hop loop that crosses each map in a caller-supplied direction until a goal map is reached. Two crossing kinds — a border-connection DOWN (via the proven `explore_grid` sweep, which records the reversible portal, then `travel_to` crosses it) and an interior door-warp UP (walk onto the `MB_WARP` tile, settle, record). `run_campaign` dispatches a single reach-home milestone; the anchor state moves to `post_starter.state` (already on route_101) and the Oldale/route_103 return legs are dropped entirely.
+**Architecture:** Add `reach_map` beside `travel_to` in `env/map_traveler.py`: a generic hop loop that crosses each map in a caller-supplied direction until a goal map is reached. Two crossing kinds — a **directional border crossing** DOWN (navigate to the southmost reachable border cell, press DOWN to cross, record the reversible portal) and an interior door-warp UP (walk onto the `MB_WARP` tile, settle, record). `run_campaign` dispatches a single reach-home milestone; the anchor state moves to `post_starter.state` (already on route_101) and the Oldale/route_103 return legs are dropped entirely.
+
+> **Task 1 de-risk finding (2026-08-12, PROVEN live):** the generic `explore_grid` sweep is the WRONG DOWN primitive — from post_starter (route_101 (10,17)) it greedily leaves via route_101's NORTH border into Oldale (0,10), not south to Littleroot (0,9), dumping the player onto the un-traversable Oldale map. The directional `_column_scan` (edge-first border cells + `probe_step` DOWN) crosses cleanly: `route_101 (10,19) --down--> Littleroot (0,9)@(10,1)`, then `_warp_scan_up @ (7,17) --> lab (1,4)@(6,12)`. So `_cross_border` below is a directional column-scan (ported from `tools/probe_return_portals.py:_column_scan`), NOT an `explore_grid` sweep.
 
 **Tech Stack:** Python 3.12, pytest, ruff (line-length 100). Pokémon Emerald (BPEF) via the mgba `GbaEmulator`; PPO Fighter via stable-baselines3 (ROM smoke only).
 
@@ -14,7 +16,7 @@
 
 ## File Structure
 
-- `env/map_traveler.py` — add `reach_map` (loop) + `_cross_in_direction` (dispatch) + `_cross_border` (DOWN) + `_cross_up_warp` (UP) + precision-walk helpers. Reuses the file's existing `_snapshot_settled`, `BATTLE_OUTCOMES`, `travel_to`.
+- `env/map_traveler.py` — add `reach_map` (loop) + `_cross_in_direction` (dispatch) + `_cross_border` (directional DOWN column-scan) + `_cross_up_warp` (UP door warp) + precision-walk helpers. Reuses the file's existing `_snapshot_settled`, `BATTLE_OUTCOMES`.
 - `env/campaign.py` — `Milestone.reach` field, `_RETURN_DIRECTIONS`, `run_campaign` reach dispatch, `PHASE2_CAMPAIGN` reach-home + shoes→lab edit, delete `_PortalSeed`/`_RETURN_PORTALS`/`seed_return_portals` and the now-dead `ROUTE_103`/`OLDALE` constants.
 - `tools/probe_phase2_b2.py` — throwaway de-risk probe (not committed as durable; left untracked or deleted after the chain is frozen).
 - `tests/test_map_traveler.py` — reach_map loop + crossing unit tests.
@@ -145,7 +147,7 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 - Modify: `env/map_traveler.py` (add helpers after `travel_to`)
 - Test: `tests/test_map_traveler.py` (append)
 
-The two crossing kinds and their dispatch. `_cross_border` (DOWN) runs `explore_grid` to discover+record the reversible border portal, then `travel_to` crosses it. `_cross_up_warp` (UP) walks onto the interior `MB_WARP` tile and settles. `_cross_in_direction` picks by direction. Unit tests monkeypatch `explore_grid`/`travel_to`/`_warp_cells` so the ROM-empirical behavior stays in Task 1's probe and Task 5's smoke; here we test control flow and portal bookkeeping.
+The two crossing kinds and their dispatch. `_cross_border` (DOWN) is a **directional column-scan** (ported from the proven `tools/probe_return_portals.py:_column_scan`): enumerate standable border cells whose `direction`-neighbour is off-map, edge-first (southmost for DOWN), `navigate_grid` to each, then `probe_step` DOWN up to `_SCAN_HOLD_PRESSES` times; the first cell that flips the map wins and records the reversible portal. `_cross_up_warp` (UP) walks onto the interior `MB_WARP` tile and settles. `_cross_in_direction` picks by direction. Unit tests monkeypatch `navigate_grid`/`probe_step`/`GridSnapshot`/`plan_path_grid`/`handle_battle_interruption`/`_warp_cells` so the ROM-empirical behaviour stays in Task 1's probe and Task 5's smoke; here we test control flow and portal bookkeeping.
 
 - [ ] **Step 1: Write failing tests for the crossing helpers**
 
@@ -156,12 +158,16 @@ from env import map_traveler
 from env.map_traveler import _cross_border, _cross_in_direction, _cross_up_warp
 
 
+from env.map_grid_reader import TileKind
+
+
 class _OneMapWorld:
     """Single-map fake that can be flipped to another map by a helper stub."""
 
     def __init__(self, map_id=(0, 16), pos=(10, 17)) -> None:
         self.map_id = map_id
         self.pos = pos
+        self.grid_reader = object()   # GridSnapshot.from_reader is monkeypatched, so opaque
 
     def step(self, keys: int, frames: int) -> None:
         pass
@@ -174,6 +180,17 @@ class _OneMapWorld:
 
     def battle_starting(self) -> bool:
         return False
+
+
+class _FakeSnap:
+    """Fake GridSnapshot: FREE only at the given cells, WALL elsewhere."""
+
+    def __init__(self, free, w=20, h=20) -> None:
+        self._free = set(free)
+        self.width, self.height = w, h
+
+    def classify_at(self, x, y):
+        return TileKind.FREE if (x, y) in self._free else TileKind.WALL
 
 
 def test_cross_in_direction_dispatches_up_to_warp(monkeypatch):
@@ -198,34 +215,49 @@ def test_cross_in_direction_dispatches_down_to_border(monkeypatch):
     assert seen == ["border"]
 
 
-def test_cross_border_crosses_a_discovered_down_portal(monkeypatch):
-    world = _OneMapWorld(map_id=(0, 16), pos=(10, 17))
-    memory = MapMemory()
+def _stub_border_env(monkeypatch, world):
+    """Wire the directional-scan boundary: opaque snap, reachable cells, no battle."""
+    monkeypatch.setattr(map_traveler.GridSnapshot, "from_reader",
+                        staticmethod(lambda *a: _FakeSnap({(10, 19), (10, 17)})))
+    monkeypatch.setattr(map_traveler, "plan_path_grid", lambda snap, a, b: ["down"])
+    monkeypatch.setattr(map_traveler, "handle_battle_interruption", lambda *a, **k: None)
 
-    def fake_explore(emu, rdr, mem, target, **kw):
-        mem.record_portal((0, 16), (11, 19), "down", (0, 9), True, (11, 1))
-        return "complete"
-
-    def fake_travel(emu, rdr, mem, gmap, gcell, **kw):
-        world.map_id = gmap  # simulate the border crossing
+    def fake_nav(emu, rdr, cell, **kw):
+        world.pos = cell
         return "arrived"
 
-    monkeypatch.setattr(map_traveler, "explore_grid", fake_explore)
-    monkeypatch.setattr(map_traveler, "travel_to", fake_travel)
+    monkeypatch.setattr(map_traveler, "navigate_grid", fake_nav)
+
+
+def test_cross_border_crosses_the_south_border_and_records(monkeypatch):
+    world = _OneMapWorld(map_id=(0, 16), pos=(10, 17))
+    memory = MapMemory()
+    _stub_border_env(monkeypatch, world)
+
+    def fake_probe(emu, rdr, before, direction):
+        world.map_id = (0, 9)   # pressing DOWN on the border cell flips to Littleroot
+        return "transition"
+
+    monkeypatch.setattr(map_traveler, "probe_step", fake_probe)
     assert _cross_border(world, world, memory, (0, 16), "down", None, None) == "crossed"
     assert world.map_id == (0, 9)
+    assert memory.portal((0, 16), (0, 9)) is not None
 
 
-def test_cross_border_reports_no_crossing_when_no_down_portal(monkeypatch):
-    world = _OneMapWorld(map_id=(0, 16))
-    monkeypatch.setattr(map_traveler, "explore_grid", lambda *a, **k: "complete")
-    monkeypatch.setattr(map_traveler, "travel_to", lambda *a, **k: "arrived")
+def test_cross_border_reports_no_crossing_when_border_never_flips(monkeypatch):
+    world = _OneMapWorld(map_id=(0, 16), pos=(10, 17))
+    _stub_border_env(monkeypatch, world)
+    monkeypatch.setattr(map_traveler, "probe_step", lambda *a: "blocked")   # never crosses
     assert _cross_border(world, world, MapMemory(), (0, 16), "down", None, None) == "no_crossing"
 
 
 def test_cross_border_passes_through_a_battle_outcome(monkeypatch):
-    world = _OneMapWorld(map_id=(0, 16))
-    monkeypatch.setattr(map_traveler, "explore_grid", lambda *a, **k: "battle_lost")
+    world = _OneMapWorld(map_id=(0, 16), pos=(10, 17))
+    monkeypatch.setattr(map_traveler.GridSnapshot, "from_reader",
+                        staticmethod(lambda *a: _FakeSnap({(10, 19)})))
+    monkeypatch.setattr(map_traveler, "plan_path_grid", lambda snap, a, b: ["down"])
+    monkeypatch.setattr(map_traveler, "handle_battle_interruption",
+                        lambda *a, **k: "battle_lost")
     assert _cross_border(world, world, MapMemory(), (0, 16), "down", None, None) == "battle_lost"
 
 
@@ -265,19 +297,19 @@ Add to the imports at the top of `env/map_traveler.py`:
 
 ```python
 from emulator import buttons
-from env.grid_explorer import explore_grid
 from env.grid_navigator import (
     DELTAS,
     handle_battle_interruption,
     navigate_grid,
     plan_path_grid,
+    probe_step,
     snapshot_settled,
 )
 from env.grid_snapshot import GridSnapshot
 from env.map_grid_reader import TileKind
 ```
 
-(Keep the existing `from env.grid_navigator import DELTAS, navigate_grid`; merge into the single import above so `DELTAS`, `navigate_grid`, `plan_path_grid`, `handle_battle_interruption`, `snapshot_settled` are all imported once. Remove the old duplicate line.)
+(Replace the existing `from env.grid_navigator import DELTAS, navigate_grid` with the single import above so `DELTAS`, `navigate_grid`, `plan_path_grid`, `probe_step`, `handle_battle_interruption`, `snapshot_settled` are all imported once. `explore_grid`/`travel_to` are NOT used by the directional crossing — do not import `explore_grid`.)
 
 Append after `travel_to`:
 
@@ -288,9 +320,18 @@ _UP_HOLD_FRAMES = 24
 _PRECISION_STEP_FRAMES = 4
 _PRECISION_RELEASE_FRAMES = 32
 _PRECISION_MAX_STEPS = 600
+_SCAN_MAX_CANDIDATES = 12   # cap border cells tried per crossing (matches _column_scan)
+_SCAN_HOLD_PRESSES = 20     # direction presses per candidate before giving up on it
+_STANDABLE = frozenset({TileKind.FREE, TileKind.GRASS})
 _KEY_FOR = {
     "up": buttons.KEY_UP, "down": buttons.KEY_DOWN,
     "left": buttons.KEY_LEFT, "right": buttons.KEY_RIGHT,
+}
+# Try the most promising border exits first: southmost for DOWN, northmost for UP,
+# westmost for LEFT, eastmost for RIGHT.
+_BORDER_SORT = {
+    "down": lambda c: -c[1], "up": lambda c: c[1],
+    "left": lambda c: c[0], "right": lambda c: -c[0],
 }
 
 
@@ -346,33 +387,68 @@ def _cross_in_direction(
     return _cross_border(emulator, reader, memory, from_map, direction, move_type_fn, predict)
 
 
+def _border_cells(snap: Any, here_pos: tuple[int, int], direction: str) -> list[tuple[int, int]]:
+    """Standable cells whose `direction`-neighbour is off-map and that are reachable
+    from here_pos, sorted edge-first (southmost for DOWN, etc.)."""
+    dx, dy = DELTAS[direction]
+    out: list[tuple[int, int]] = []
+    for y in range(snap.height):
+        for x in range(snap.width):
+            if snap.classify_at(x, y) not in _STANDABLE:
+                continue
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < snap.width and 0 <= ny < snap.height:
+                continue   # neighbour is on-map: not a border cell for this direction
+            if (x, y) == here_pos or plan_path_grid(snap, here_pos, (x, y)) is not None:
+                out.append((x, y))
+    out.sort(key=_BORDER_SORT[direction])
+    return out[:_SCAN_MAX_CANDIDATES]
+
+
 def _cross_border(
     emulator: Any, reader: Any, memory: MapMemory, from_map: tuple[int, int], direction: str,
     move_type_fn: Any, predict: Any,
 ) -> str:
-    """DOWN border-connection: explore_grid records the reversible portal, then travel_to
-    crosses it. Border cells behind ledge barriers are only reachable via the sweep."""
-    outcome = explore_grid(
-        emulator, reader, memory, from_map, move_type_fn=move_type_fn, predict=predict
-    )
-    if outcome in BATTLE_OUTCOMES:
-        return outcome
+    """Directional border crossing (ported from probe_return_portals._column_scan).
+
+    Navigate to each edge-first border cell and press `direction`; the first cell that
+    flips the map wins and records the reversible portal. A DIRECTED descent, unlike the
+    greedy explore_grid sweep which leaves via the first non-reversible border in ANY
+    direction (route_101's north exit to Oldale instead of its south exit to Littleroot).
+    Returns 'crossed' | 'no_crossing' | a battle outcome.
+    """
     here = _snapshot_settled(reader)
-    if here is not None and here.map_id != from_map:
-        return "crossed"   # a non-reversible border was crossed during the sweep
-    portal = next(
-        (p for p in memory.outgoing_portals(from_map) if p.direction == direction), None
-    )
-    if portal is None:
+    if here is None or here.map_id != from_map:
         return "no_crossing"
-    arrived = travel_to(
-        emulator, reader, memory, portal.to_map, portal.to_cell,
-        move_type_fn=move_type_fn, predict=predict,
-    )
-    if arrived in BATTLE_OUTCOMES:
-        return arrived
-    after = _snapshot_settled(reader)
-    return "crossed" if after is not None and after.map_id == portal.to_map else "no_crossing"
+    snap = GridSnapshot.from_reader(reader.grid_reader, from_map)
+    if snap is None:
+        return "no_crossing"
+    for cell in _border_cells(snap, here.pos, direction):
+        battle = handle_battle_interruption(emulator, reader, move_type_fn, predict)
+        if battle is not None:
+            return battle
+        arrived = navigate_grid(
+            emulator, reader, cell, memory=memory, move_type_fn=move_type_fn, predict=predict
+        )
+        if arrived in BATTLE_OUTCOMES:
+            return arrived
+        if arrived != "arrived":
+            continue
+        for _ in range(_SCAN_HOLD_PRESSES):
+            battle = handle_battle_interruption(emulator, reader, move_type_fn, predict)
+            if battle is not None:
+                return battle
+            before = _snapshot_settled(reader)
+            if before is None or before.map_id != from_map:
+                break
+            probe_step(emulator, reader, before, direction)
+            after = _snapshot_settled(reader)
+            if after is not None and after.map_id != from_map:
+                memory.record_portal(
+                    from_map, before.pos, direction, after.map_id, True, after.pos
+                )
+                return "crossed"
+    return "no_crossing"
 
 
 def _cross_up_warp(
