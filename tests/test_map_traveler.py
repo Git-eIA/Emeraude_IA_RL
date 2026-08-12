@@ -6,7 +6,7 @@ from env import map_traveler
 from env.grid_navigator import DIRECTIONS
 from env.map_grid_reader import TileKind
 from env.map_memory import MapMemory, WorldEvent
-from env.map_traveler import _cross_border, _cross_in_direction, _cross_up_warp, travel_to
+from env.map_traveler import _cross_border, _cross_in_direction, _cross_up_warp, reach_map, travel_to
 from env.world_reader import WorldSnapshot
 
 _KEY_TO_DIR: dict[int, str] = {
@@ -432,3 +432,74 @@ def test_cross_up_warp_reports_no_crossing_without_a_warp_tile(monkeypatch):
     monkeypatch.setattr(map_traveler, "GridSnapshot",
                         type("_GS", (), {"from_reader": staticmethod(lambda *a: object())}))
     assert _cross_up_warp(world, world, MapMemory(), (0, 9), None, None) == "no_crossing"
+
+
+# ---------------------------------------------------------------------------
+# Task 3: reach_map greedy-descent loop
+# ---------------------------------------------------------------------------
+
+class _ScriptedDescentWorld:
+    """Fake whose map flips through a scripted sequence each time a crossing fires."""
+
+    def __init__(self, sequence: list[tuple[int, int]]) -> None:
+        self._sequence = sequence
+        self.map_id = sequence[0]
+        self.pos = (10, 17)
+        self._i = 0
+
+    def advance(self) -> None:
+        if self._i < len(self._sequence) - 1:
+            self._i += 1
+            self.map_id = self._sequence[self._i]
+
+    def step(self, keys: int, frames: int) -> None:
+        pass
+
+    def snapshot(self):
+        return WorldSnapshot(map_id=self.map_id, pos=self.pos, tile_behavior=None)
+
+    def in_battle(self) -> bool:
+        return False
+
+    def battle_starting(self) -> bool:
+        return False
+
+
+def test_reach_map_arrives_over_two_hops(monkeypatch):
+    world = _ScriptedDescentWorld([(0, 16), (0, 9), (1, 4)])
+    directions = {(0, 16): "down", (0, 9): "up"}
+
+    def fake_cross(emu, rdr, mem, from_map, direction, **kw):
+        world.advance()
+        return "crossed"
+
+    monkeypatch.setattr(map_traveler, "_cross_in_direction", fake_cross)
+    assert reach_map(world, world, MapMemory(), (1, 4), directions) == "arrived"
+
+
+def test_reach_map_already_on_goal_returns_arrived():
+    world = _ScriptedDescentWorld([(1, 4)])
+    assert reach_map(world, world, MapMemory(), (1, 4), {}) == "arrived"
+
+
+def test_reach_map_stalls_on_an_unexpected_map():
+    world = _ScriptedDescentWorld([(0, 16)])
+    assert reach_map(world, world, MapMemory(), (1, 4), {(0, 9): "up"}) == "stall"
+
+
+def test_reach_map_stalls_when_no_crossing_fires(monkeypatch):
+    world = _ScriptedDescentWorld([(0, 16)])
+    monkeypatch.setattr(map_traveler, "_cross_in_direction", lambda *a, **k: "no_crossing")
+    assert reach_map(world, world, MapMemory(), (1, 4), {(0, 16): "down"}) == "stall"
+
+
+def test_reach_map_passes_through_a_battle_outcome(monkeypatch):
+    world = _ScriptedDescentWorld([(0, 16)])
+    monkeypatch.setattr(map_traveler, "_cross_in_direction", lambda *a, **k: "battle_lost")
+    assert reach_map(world, world, MapMemory(), (1, 4), {(0, 16): "down"}) == "battle_lost"
+
+
+def test_reach_map_times_out_when_hops_exhaust(monkeypatch):
+    world = _ScriptedDescentWorld([(0, 16)])
+    monkeypatch.setattr(map_traveler, "_cross_in_direction", lambda *a, **k: "crossed")
+    assert reach_map(world, world, MapMemory(), (1, 4), {(0, 16): "down"}, max_hops=3) == "timeout"

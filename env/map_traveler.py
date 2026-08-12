@@ -286,3 +286,41 @@ def _cross_up_warp(
             memory.record_portal(from_map, cell, "up", settled.map_id, True, settled.pos)
             return "crossed"
     return "no_crossing"
+
+
+def reach_map(
+    emulator: Any,
+    reader: Any,
+    memory: MapMemory,
+    goal_map: tuple[int, int],
+    direction_by_map: dict[tuple[int, int], str],
+    *,
+    move_type_fn: Any = None,
+    predict: Any = None,
+    max_hops: int = 12,
+) -> str:
+    """Greedy hop loop: follow direction_by_map until goal_map is reached.
+
+    Returns 'arrived' | 'stall' | 'timeout' | 'battle_lost' | 'battle_timeout' |
+    'battle_interrupted'. 'stall' = current map not in direction_by_map, or no crossing
+    fired. 'timeout' = hop budget exhausted.
+    """
+    for _ in range(max_hops):
+        here = _snapshot_settled(reader)
+        if here is None:
+            emulator.step(0, 1)   # relocating between maps; idle a beat and retry
+            continue
+        if here.map_id == goal_map:
+            return "arrived"
+        direction = direction_by_map.get(here.map_id)
+        if direction is None:
+            return "stall"
+        crossed = _cross_in_direction(
+            emulator, reader, memory, here.map_id, direction,
+            move_type_fn=move_type_fn, predict=predict,
+        )
+        if crossed in BATTLE_OUTCOMES:
+            return crossed
+        if crossed != "crossed":
+            return "stall"
+    return "timeout"
