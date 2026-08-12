@@ -412,7 +412,7 @@ def test_cross_border_passes_through_a_battle_outcome(monkeypatch):
 def test_cross_up_warp_walks_onto_a_warp_tile_and_records(monkeypatch):
     world = _OneMapWorld(map_id=(0, 9), pos=(8, 18))
     memory = MapMemory()
-    monkeypatch.setattr(map_traveler, "_warp_cells", lambda rdr, snap, m: [(8, 17)])
+    monkeypatch.setattr(map_traveler, "_warp_cells", lambda rdr, snap: [(8, 17)])
     monkeypatch.setattr(map_traveler, "GridSnapshot",
                         type("_GS", (), {"from_reader": staticmethod(lambda *a: object())}))
 
@@ -428,7 +428,7 @@ def test_cross_up_warp_walks_onto_a_warp_tile_and_records(monkeypatch):
 
 def test_cross_up_warp_reports_no_crossing_without_a_warp_tile(monkeypatch):
     world = _OneMapWorld(map_id=(0, 9))
-    monkeypatch.setattr(map_traveler, "_warp_cells", lambda rdr, snap, m: [])
+    monkeypatch.setattr(map_traveler, "_warp_cells", lambda rdr, snap: [])
     monkeypatch.setattr(map_traveler, "GridSnapshot",
                         type("_GS", (), {"from_reader": staticmethod(lambda *a: object())}))
     assert _cross_up_warp(world, world, MapMemory(), (0, 9), None, None) == "no_crossing"

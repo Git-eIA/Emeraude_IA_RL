@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from emulator import buttons
 from env.grid_navigator import (
     DELTAS,
+    DIRECTION_KEYS,
     handle_battle_interruption,
     navigate_grid,
     plan_path_grid,
@@ -115,10 +115,6 @@ _PRECISION_MAX_STEPS = 600
 _SCAN_MAX_CANDIDATES = 12   # cap border cells tried per crossing (matches _column_scan)
 _SCAN_HOLD_PRESSES = 20     # direction presses per candidate before giving up on it
 _STANDABLE = frozenset({TileKind.FREE, TileKind.GRASS})
-_KEY_FOR = {
-    "up": buttons.KEY_UP, "down": buttons.KEY_DOWN,
-    "left": buttons.KEY_LEFT, "right": buttons.KEY_RIGHT,
-}
 # Try the most promising border exits first: southmost for DOWN, northmost for UP,
 # westmost for LEFT, eastmost for RIGHT.
 _BORDER_SORT = {
@@ -150,11 +146,11 @@ def _precision_walk_to(
         path = plan_path_grid(snap, here.pos, target)
         if not path:
             return False
-        _precision_step(emulator, _KEY_FOR[path[0]])
+        _precision_step(emulator, DIRECTION_KEYS[path[0]])
     return False
 
 
-def _warp_cells(reader: Any, snap: Any, map_id: tuple[int, int]) -> list[tuple[int, int]]:
+def _warp_cells(reader: Any, snap: Any) -> list[tuple[int, int]]:
     """FREE cells whose tile behavior is MB_WARP (0x60): interior door tiles."""
     out: list[tuple[int, int]] = []
     for y in range(snap.height):
@@ -197,6 +193,31 @@ def _border_cells(snap: Any, here_pos: tuple[int, int], direction: str) -> list[
     return out[:_SCAN_MAX_CANDIDATES]
 
 
+def _probe_border_cell(
+    emulator: Any, reader: Any, memory: MapMemory, from_map: tuple[int, int],
+    direction: str, move_type_fn: Any, predict: Any,
+) -> str | None:
+    """Press `direction` up to _SCAN_HOLD_PRESSES times from the current cell.
+
+    On the first map flip, record the reversible portal and return 'crossed'.
+    On a battle outcome, return that outcome string. Return None if the loop
+    exhausts without crossing (this cell did not cross).
+    """
+    for _ in range(_SCAN_HOLD_PRESSES):
+        battle = handle_battle_interruption(emulator, reader, move_type_fn, predict)
+        if battle is not None:
+            return battle
+        before = _snapshot_settled(reader)
+        if before is None or before.map_id != from_map:
+            break
+        probe_step(emulator, reader, before, direction)
+        after = _snapshot_settled(reader)
+        if after is not None and after.map_id != from_map:
+            memory.record_portal(from_map, before.pos, direction, after.map_id, True, after.pos)
+            return "crossed"
+    return None
+
+
 def _cross_border(
     emulator: Any, reader: Any, memory: MapMemory, from_map: tuple[int, int], direction: str,
     move_type_fn: Any, predict: Any,
@@ -226,20 +247,11 @@ def _cross_border(
             return arrived
         if arrived != "arrived":
             continue
-        for _ in range(_SCAN_HOLD_PRESSES):
-            battle = handle_battle_interruption(emulator, reader, move_type_fn, predict)
-            if battle is not None:
-                return battle
-            before = _snapshot_settled(reader)
-            if before is None or before.map_id != from_map:
-                break
-            probe_step(emulator, reader, before, direction)
-            after = _snapshot_settled(reader)
-            if after is not None and after.map_id != from_map:
-                memory.record_portal(
-                    from_map, before.pos, direction, after.map_id, True, after.pos
-                )
-                return "crossed"
+        outcome = _probe_border_cell(emulator, reader, memory, from_map, direction, move_type_fn, predict)
+        if outcome in BATTLE_OUTCOMES:
+            return outcome
+        if outcome == "crossed":
+            return "crossed"
     return "no_crossing"
 
 
@@ -258,7 +270,7 @@ def _cross_up_warp(
     snap = GridSnapshot.from_reader(reader.grid_reader, from_map)
     if snap is None:
         return "no_crossing"
-    for cell in _warp_cells(reader, snap, from_map):
+    for cell in _warp_cells(reader, snap):
         cur = _snapshot_settled(reader)
         if cur is None or cur.map_id != from_map:
             return "no_crossing"
@@ -267,7 +279,7 @@ def _cross_up_warp(
         if landed is not None and landed.map_id != from_map:
             memory.record_portal(from_map, cell, "up", landed.map_id, True, landed.pos)
             return "crossed"
-        emulator.step(_KEY_FOR["up"], _UP_HOLD_FRAMES)
+        emulator.step(DIRECTION_KEYS["up"], _UP_HOLD_FRAMES)
         emulator.step(0, _WARP_SETTLE_FRAMES)
         settled = _snapshot_settled(reader)
         if settled is not None and settled.map_id != from_map:

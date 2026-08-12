@@ -123,7 +123,7 @@ def _reconstruct(
     return directions
 
 
-_DIRECTION_KEYS: dict[str, int] = {
+DIRECTION_KEYS: dict[str, int] = {
     "up": buttons.KEY_UP,
     "down": buttons.KEY_DOWN,
     "left": buttons.KEY_LEFT,
@@ -194,7 +194,7 @@ def probe_step(emulator: Any, reader: Any, before: Any, direction: str) -> str:
     """Press `direction`, retrying so a first-press turn isn't read as a wall."""
     outcome = "blocked"
     for _ in range(TURN_RETRIES):
-        emulator.step(_DIRECTION_KEYS[direction], STEP_FRAMES)
+        emulator.step(DIRECTION_KEYS[direction], STEP_FRAMES)
         emulator.step(0, RELEASE_FRAMES)
         after = snapshot_settled(reader)
         if after is None:
