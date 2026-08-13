@@ -40,15 +40,20 @@ PARTY_MAX_HP_OFFSET = 88  # 0x58, u16 max HP     (unencrypted; confirmed)
 _POS_OFFSET = 0x0000  # Coords16 pos: s16 x, s16 y
 _LOCATION_OFFSET = 0x0004  # WarpData location: s8 mapGroup, s8 mapNum
 _FLAGS_OFFSET = 0x1270  # u8 flags[]
-_FIRST_BADGE_FLAG = 0x867  # FLAG_BADGE01_GET .. FLAG_BADGE08_GET are contiguous
+# SYSTEM_FLAGS base (pret/pokeemerald flags.h: TRAINER_FLAGS_END + 1 == 0x860). The
+# Pokédex and badge flags are all SYSTEM_FLAGS + offset; hard-coding a 0x800 base was
+# the bug that hid the delivered Pokédex.
+SYSTEM_FLAGS = 0x860
+_FIRST_BADGE_FLAG = SYSTEM_FLAGS + 0x7  # FLAG_BADGE01_GET .. FLAG_BADGE08_GET are contiguous
 # FLAG_SET_WALL_CLOCK from pret/pokeemerald include/constants/flags.h.
 # The intro is complete only once the bedroom wall clock has been set.
 FLAG_SET_WALL_CLOCK = 0x51
-# FLAG_SYS_POKEDEX_GET / FLAG_RECEIVED_RUNNING_SHOES from pret/pokeemerald
-# include/constants/flags.h. Candidate ids — the probe (tools/probe_phase2_facts.py)
-# confirms or replaces them on BPEF before the ROM smoke becomes load-bearing.
-FLAG_SYS_POKEDEX_GET = 0x801
-FLAG_RECEIVED_RUNNING_SHOES = 0x86F
+# FLAG_SYS_POKEDEX_GET = SYSTEM_FLAGS + 0x1 (flags.h). FLAG_RECEIVED_RUNNING_SHOES is a
+# plain event flag (0x112, below SYSTEM_FLAGS), NOT a system flag. Both verified against
+# pret/pokeemerald flags.h and the live lab-cutscene flag-diff; test_flag_constants_rom.py
+# is load-bearing on the Pokédex id (the old 0x801 read a clear bit and hid the Pokédex).
+FLAG_SYS_POKEDEX_GET = SYSTEM_FLAGS + 0x1
+FLAG_RECEIVED_RUNNING_SHOES = 0x112
 
 # Event vars array inside SaveBlock1. Offset verified empirically on BPEF
 # (2026-07-23 probe): VAR_LITTLEROOT_INTRO_STATE stepped 0->7 during the intro.
