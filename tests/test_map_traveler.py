@@ -524,3 +524,92 @@ def test_reach_map_times_out_when_hops_exhaust(monkeypatch):
     world = _ScriptedDescentWorld([(0, 16)])
     monkeypatch.setattr(map_traveler, "_cross_in_direction", lambda *a, **k: "crossed")
     assert reach_map(world, world, MapMemory(), (1, 4), {(0, 16): "down"}, max_hops=3) == "timeout"
+
+
+# ---------------------------------------------------------------------------
+# A2: explore-based hop (route_103 -> Oldale) + portal crossing
+# ---------------------------------------------------------------------------
+
+from collections import namedtuple  # noqa: E402
+
+_Snap = namedtuple("_Snap", "map_id pos")
+
+
+def test_cross_portal_walks_to_from_cell_then_steps_into_the_neighbor(monkeypatch):
+    memory = MapMemory()
+    memory.record_portal((0, 18), (11, 9), "down", (0, 10), True, (11, 1))
+    portal = memory.portal((0, 18), (0, 10))
+    calls = []
+    monkeypatch.setattr(
+        map_traveler, "navigate_grid",
+        lambda emu, rdr, target, **kw: (calls.append(target), "arrived")[1],
+    )
+    assert map_traveler._cross_portal(None, None, memory, portal, None, None) == "arrived"
+    assert calls == [(11, 9), (11, 10)]   # from_cell, then one step DOWN (DELTAS["down"])
+
+
+def test_cross_portal_short_circuits_when_it_cannot_reach_from_cell(monkeypatch):
+    memory = MapMemory()
+    memory.record_portal((0, 18), (11, 9), "down", (0, 10), True, (11, 1))
+    portal = memory.portal((0, 18), (0, 10))
+    monkeypatch.setattr(map_traveler, "navigate_grid", lambda *a, **k: "unreachable")
+    assert map_traveler._cross_portal(None, None, memory, portal, None, None) == "unreachable"
+
+
+def test_hop_via_explore_arrives_when_explore_auto_lands_on_the_target(monkeypatch):
+    state = {"map": (0, 18), "pos": (11, 0)}
+    memory = MapMemory()
+    monkeypatch.setattr(map_traveler, "_snapshot_settled",
+                        lambda rdr: _Snap(state["map"], state["pos"]))
+
+    def fake_explore(emu, rdr, mem, tmap, **kw):
+        state["map"], state["pos"] = (0, 10), (11, 1)   # swept off route_103 onto Oldale
+        return "complete"
+
+    monkeypatch.setattr(map_traveler, "explore_grid", fake_explore)
+    assert map_traveler.hop_via_explore(
+        None, None, memory, (0, 18), (0, 10), "down",
+        move_type_fn=None, predict=None,
+    ) == "arrived"
+    assert memory.portal((0, 18), (0, 10)) is not None
+
+
+def test_hop_via_explore_crosses_a_discovered_portal_when_explore_stays_put(monkeypatch):
+    state = {"map": (0, 18), "pos": (11, 0)}
+    memory = MapMemory()
+    monkeypatch.setattr(map_traveler, "_snapshot_settled",
+                        lambda rdr: _Snap(state["map"], state["pos"]))
+
+    def fake_explore(emu, rdr, mem, tmap, **kw):
+        mem.record_portal((0, 18), (11, 9), "down", (0, 10), True, (11, 1))  # found, still on route_103
+        return "complete"
+
+    def fake_cross(emu, rdr, mem, portal, mtf, predict):
+        state["map"], state["pos"] = (0, 10), (11, 1)
+        return "arrived"
+
+    monkeypatch.setattr(map_traveler, "explore_grid", fake_explore)
+    monkeypatch.setattr(map_traveler, "_cross_portal", fake_cross)
+    assert map_traveler.hop_via_explore(
+        None, None, memory, (0, 18), (0, 10), "down",
+        move_type_fn=None, predict=None,
+    ) == "arrived"
+
+
+def test_hop_via_explore_reports_no_portal_when_none_is_discovered(monkeypatch):
+    state = {"map": (0, 18), "pos": (11, 0)}
+    monkeypatch.setattr(map_traveler, "_snapshot_settled",
+                        lambda rdr: _Snap(state["map"], state["pos"]))
+    monkeypatch.setattr(map_traveler, "explore_grid", lambda *a, **k: "complete")
+    assert map_traveler.hop_via_explore(
+        None, None, MapMemory(), (0, 18), (0, 10), "down",
+        move_type_fn=None, predict=None,
+    ) == "no_portal"
+
+
+def test_hop_via_explore_stalls_when_not_starting_on_from_map(monkeypatch):
+    monkeypatch.setattr(map_traveler, "_snapshot_settled", lambda rdr: _Snap((0, 16), (0, 0)))
+    assert map_traveler.hop_via_explore(
+        None, None, MapMemory(), (0, 18), (0, 10), "down",
+        move_type_fn=None, predict=None,
+    ) == "stall"

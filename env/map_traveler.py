@@ -22,6 +22,7 @@ from env.grid_navigator import (
 from env.grid_snapshot import GridSnapshot
 from env.map_grid_reader import TileKind
 from env.map_memory import MapMemory
+from env.grid_explorer import explore_grid
 from env.route_planner import plan_route
 
 SETTLE_TRIES = 4   # skip SaveBlock None frames when reading where we landed
@@ -291,6 +292,75 @@ def _cross_up_warp(
             memory.record_portal(from_map, cell, "up", settled.map_id, True, settled.pos)
             return "crossed"
     return "no_crossing"
+
+
+def _cross_portal(
+    emulator: Any,
+    reader: Any,
+    memory: MapMemory,
+    portal: Any,
+    move_type_fn: Any,
+    predict: Any,
+) -> str:
+    """Navigate to a discovered portal's from_cell, then step once into the
+    neighbour cell across the border. Returns navigate_grid's outcome
+    ('arrived' on success, else the failing nav status)."""
+    r = navigate_grid(
+        emulator, reader, portal.from_cell,
+        memory=memory, move_type_fn=move_type_fn, predict=predict,
+    )
+    if r != "arrived":
+        return r
+    dx, dy = DELTAS[portal.direction]
+    nb = (portal.from_cell[0] + dx, portal.from_cell[1] + dy)
+    return navigate_grid(
+        emulator, reader, nb,
+        memory=memory, move_type_fn=move_type_fn, predict=predict,
+    )
+
+
+def hop_via_explore(
+    emulator: Any,
+    reader: Any,
+    memory: MapMemory,
+    from_map: tuple[int, int],
+    to_map: tuple[int, int],
+    direction: str,
+    *,
+    move_type_fn: Any = None,
+    predict: Any = None,
+) -> str:
+    """Hop from_map -> to_map by exploring from_map's borders for the portal.
+
+    explore_grid sweeps from_map's reachable border tiles and records portals.
+    If the sweep itself lands on to_map, that IS the hop. Otherwise the discovered
+    to_map portal is crossed with _cross_portal. Used for route_103 -> Oldale, where
+    _cross_border lands at an Oldale tile the Flora walk cannot reach; the explore
+    sweep lands at the reachable (11,1) instead.
+
+    Returns 'arrived' on success, else 'stall' (not on from_map / explore left to a
+    third map) or 'no_portal' (no to_map portal discovered).
+    """
+    here = _snapshot_settled(reader)
+    if here is None or here.map_id != from_map:
+        return "stall"
+    entry = here.pos
+    explore_grid(emulator, reader, memory, from_map,
+                 move_type_fn=move_type_fn, predict=predict)
+    now = _snapshot_settled(reader)
+    if now is not None and now.map_id == to_map:
+        memory.record_portal(from_map, entry, direction, to_map, True, now.pos)
+        return "arrived"
+    portal = memory.portal(from_map, to_map)
+    if portal is None:
+        return "no_portal"
+    if now is None or now.map_id != from_map:
+        return "stall"
+    _cross_portal(emulator, reader, memory, portal, move_type_fn, predict)
+    after = _snapshot_settled(reader)
+    if after is not None and after.map_id == to_map:
+        return "arrived"
+    return "stall"
 
 
 def reach_map(
