@@ -22,7 +22,9 @@ from env.grid_navigator import (
 from env.grid_snapshot import GridSnapshot
 from env.map_grid_reader import TileKind
 from env.map_memory import MapMemory
+from env.grid_explorer import explore_grid
 from env.route_planner import plan_route
+from emulator import buttons
 
 SETTLE_TRIES = 4   # skip SaveBlock None frames when reading where we landed
 BATTLE_OUTCOMES = ("battle_lost", "battle_timeout", "battle_interrupted")
@@ -120,6 +122,9 @@ _BORDER_SORT = {
     "down": lambda c: -c[1], "up": lambda c: c[1],
     "left": lambda c: c[0], "right": lambda c: -c[0],
 }
+_FACE_FRAMES = 4        # tap toward the NPC to rotate the sprite without stepping
+_NPC_ASPAM_FRAMES = 8   # A-press dwell to play/clear one dialogue box
+_CROSS_PUSH_MAX = 12    # bounded cross-direction steps after the dialogue clears
 
 
 def _precision_step(emulator: Any, key: int) -> None:
@@ -291,6 +296,124 @@ def _cross_up_warp(
             memory.record_portal(from_map, cell, "up", settled.map_id, True, settled.pos)
             return "crossed"
     return "no_crossing"
+
+
+def _cross_portal(
+    emulator: Any,
+    reader: Any,
+    memory: MapMemory,
+    portal: Any,
+    move_type_fn: Any,
+    predict: Any,
+) -> str:
+    """Navigate to a discovered portal's from_cell, then step once into the
+    neighbour cell across the border. Returns navigate_grid's outcome
+    ('arrived' on success, else the failing nav status)."""
+    r = navigate_grid(
+        emulator, reader, portal.from_cell,
+        memory=memory, move_type_fn=move_type_fn, predict=predict,
+    )
+    if r != "arrived":
+        return r
+    dx, dy = DELTAS[portal.direction]
+    nb = (portal.from_cell[0] + dx, portal.from_cell[1] + dy)
+    return navigate_grid(
+        emulator, reader, nb,
+        memory=memory, move_type_fn=move_type_fn, predict=predict,
+    )
+
+
+def hop_via_explore(
+    emulator: Any,
+    reader: Any,
+    memory: MapMemory,
+    from_map: tuple[int, int],
+    to_map: tuple[int, int],
+    direction: str,
+    *,
+    move_type_fn: Any = None,
+    predict: Any = None,
+) -> str:
+    """Hop from_map -> to_map by exploring from_map's borders for the portal.
+
+    explore_grid sweeps from_map's reachable border tiles and records portals.
+    If the sweep itself lands on to_map, that IS the hop. Otherwise the discovered
+    to_map portal is crossed with _cross_portal. Used for route_103 -> Oldale, where
+    _cross_border lands at an Oldale tile the Flora walk cannot reach; the explore
+    sweep lands at the reachable (11,1) instead.
+
+    Returns 'arrived' on success, else 'stall' (not on from_map / explore left to a
+    third map) or 'no_portal' (no to_map portal discovered).
+    """
+    here = _snapshot_settled(reader)
+    if here is None or here.map_id != from_map:
+        return "stall"
+    entry = here.pos
+    explore_grid(emulator, reader, memory, from_map,
+                 move_type_fn=move_type_fn, predict=predict)
+    now = _snapshot_settled(reader)
+    if now is not None and now.map_id == to_map:
+        memory.record_portal(from_map, entry, direction, to_map, True, now.pos)
+        return "arrived"
+    portal = memory.portal(from_map, to_map)
+    if portal is None:
+        return "no_portal"
+    if now is None or now.map_id != from_map:
+        return "stall"
+    _cross_portal(emulator, reader, memory, portal, move_type_fn, predict)
+    after = _snapshot_settled(reader)
+    if after is not None and after.map_id == to_map:
+        return "arrived"
+    return "stall"
+
+
+def cross_scripted_npc(
+    emulator: Any,
+    reader: Any,
+    memory: MapMemory,
+    from_map: tuple[int, int],
+    *,
+    stand_tile: tuple[int, int],
+    face_dir: str,
+    cross_dir: str,
+    max_presses: int,
+) -> bool:
+    """Cross an NPC-gated connection: walk to stand_tile, face the NPC, A-spam its
+    dialogue, then push cross_dir until the map changes. Returns True iff the map flipped.
+
+    Flora stands on Oldale's south connection tile; the crossing only opens once her
+    dialogue has played. face_dir (toward the NPC) and cross_dir (toward the next map)
+    are distinct because Flora is faced EAST but the crossing is DOWN.
+    """
+    here = _snapshot_settled(reader)
+    if here is None or here.map_id != from_map:
+        return False
+    snap = GridSnapshot.from_reader(reader.grid_reader, from_map)
+    if snap is None:
+        return False
+    if not _precision_walk_to(emulator, reader, snap, stand_tile, from_map):
+        return False
+    # Tap toward the NPC: the NPC tile walls the player, so this only rotates the sprite.
+    emulator.step(DIRECTION_KEYS[face_dir], _FACE_FRAMES)
+    emulator.step(0, _PRECISION_RELEASE_FRAMES)
+    # Play/clear the dialogue (bounded A-spam; A never steps).
+    for _ in range(max_presses):
+        emulator.step(buttons.KEY_A, _NPC_ASPAM_FRAMES)
+        emulator.step(0, _NPC_ASPAM_FRAMES)
+    # Push toward the next map until it flips.
+    for _ in range(_CROSS_PUSH_MAX):
+        before = _snapshot_settled(reader)
+        if before is None:
+            return False
+        if before.map_id != from_map:
+            memory.record_portal(from_map, stand_tile, cross_dir, before.map_id, True, before.pos)
+            return True
+        probe_step(emulator, reader, before, cross_dir)
+    after = _snapshot_settled(reader)
+    if after is not None and after.map_id != from_map:
+        memory.record_portal(from_map, stand_tile, cross_dir, after.map_id, True, after.pos)
+        return True
+    return False
 
 
 def reach_map(

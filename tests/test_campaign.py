@@ -6,10 +6,13 @@ from env.campaign import (
     LAB,
     LITTLEROOT,
     Milestone,
+    OLDALE,
     PHASE2_CAMPAIGN,
     ROUTE_101,
+    ROUTE_103,
     _RETURN_DIRECTIONS,
     run_campaign,
+    run_pokedex_return,
 )
 from env.map_memory import MapMemory
 from env.orders import Order
@@ -264,3 +267,72 @@ def test_phase2_campaign_is_a_single_reach_home_milestone():
     # (proven: entering the lab fires nothing). The B2 deliverable is the descent itself,
     # so the campaign is exactly one reach-lab milestone — no story milestones.
     assert PHASE2_CAMPAIGN == (Milestone("lab", 0, reach=LAB),)
+
+
+# ---------------------------------------------------------------------------
+# A2: run_pokedex_return orchestration
+# ---------------------------------------------------------------------------
+
+
+class _Emu:
+    """Fake emulator: run_pokedex_return calls .step for the settle frames."""
+
+    def step(self, keys, frames):
+        pass
+
+
+def _wire_return(monkeypatch, *, hop, flora, descent, cutscene):
+    """Stub the four legs of run_pokedex_return; record their calls in order."""
+    calls = []
+    monkeypatch.setattr(
+        campaign, "hop_via_explore",
+        lambda *a, **k: (calls.append(("hop", a[3], a[4])), hop)[1],
+    )
+    monkeypatch.setattr(
+        campaign, "cross_scripted_npc",
+        lambda *a, **k: (calls.append(("flora", a[3])), flora)[1],
+    )
+    monkeypatch.setattr(
+        campaign, "reach_map",
+        lambda *a, **k: (calls.append(("reach", a[3])), descent)[1],
+    )
+    monkeypatch.setattr(
+        campaign, "_advance_story_dialogue",
+        lambda *a, **k: (calls.append(("cutscene",)), cutscene)[1],
+    )
+    return calls
+
+
+def test_run_pokedex_return_delivers_on_the_happy_path(monkeypatch):
+    calls = _wire_return(monkeypatch, hop="arrived", flora=True,
+                         descent="arrived", cutscene="story_done")
+    assert run_pokedex_return(_Emu(), None, MapMemory()) == "pokedex_delivered"
+    assert calls == [
+        ("hop", ROUTE_103, OLDALE), ("flora", OLDALE),
+        ("reach", LAB), ("cutscene",),
+    ]
+
+
+def test_run_pokedex_return_propagates_the_oldale_hop_outcome(monkeypatch):
+    # hop_via_explore's own status (stall/no_portal/battle_lost/...) surfaces verbatim.
+    _wire_return(monkeypatch, hop="stall", flora=True,
+                 descent="arrived", cutscene="story_done")
+    assert run_pokedex_return(_Emu(), None, MapMemory()) == "stall"
+
+
+def test_run_pokedex_return_stops_if_flora_never_crosses(monkeypatch):
+    _wire_return(monkeypatch, hop="arrived", flora=False,
+                 descent="arrived", cutscene="story_done")
+    assert run_pokedex_return(_Emu(), None, MapMemory()) == "flora_no_cross"
+
+
+def test_run_pokedex_return_propagates_the_descent_outcome(monkeypatch):
+    _wire_return(monkeypatch, hop="arrived", flora=True,
+                 descent="stall", cutscene="story_done")
+    assert run_pokedex_return(_Emu(), None, MapMemory()) == "stall"
+
+
+def test_run_pokedex_return_stops_if_the_pokedex_is_not_delivered(monkeypatch):
+    _wire_return(monkeypatch, hop="arrived", flora=True,
+                 descent="arrived", cutscene="story_timeout")
+    assert run_pokedex_return(_Emu(), None, MapMemory()) == "pokedex_not_delivered"

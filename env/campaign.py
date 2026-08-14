@@ -15,18 +15,31 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from env.map_traveler import reach_map
-from env.orders import Order, execute_order, reached
+from env.map_traveler import cross_scripted_npc, hop_via_explore, reach_map
+from env.orders import Order, _advance_story_dialogue, execute_order, reached
 
 # Map-group ids on the southbound return path.
 ROUTE_101 = (0, 16)
 LITTLEROOT = (0, 9)
 LAB = (1, 4)
+ROUTE_103 = (0, 18)
+OLDALE = (0, 10)
 
 # Return chain for reach_map: cross route_101 south (down) into Littleroot, then the
 # lab door warp (up). Oldale/route_103 are dropped — the north-entry Oldale hop is not
 # crossable in a continuous descent (see the B2 spec), and B2 starts on route_101.
 _RETURN_DIRECTIONS: dict[tuple[int, int], str] = {ROUTE_101: "down", LITTLEROOT: "up"}
+
+# Settle frames after the route_103 -> Oldale hop, before the Flora walk (let the
+# map transition finish so _precision_walk_to reads a stable grid).
+_SETTLE_FRAMES = 60
+
+# Flora gate: she stands on Oldale's south connection tile (11,19). Stand just north
+# at (10,19) facing EAST, A-spam her dialogue, then DOWN crosses into route_101.
+_FLORA_STAND = (10, 19)
+_FLORA_FACE = "right"
+_FLORA_CROSS = "down"
+_FLORA_MAX_PRESSES = 60
 
 
 @dataclass(frozen=True)
@@ -127,3 +140,51 @@ def run_campaign(
             if fought != "won":
                 return fought
     return "campaign_complete"
+
+
+def run_pokedex_return(
+    emulator: Any,
+    reader: Any,
+    memory: Any,
+    *,
+    move_type_fn: Any = None,
+    predict: Any = None,
+) -> str:
+    """Drive post_rival.state back to Birch's lab and deliver the Pokédex.
+
+    hop_via_explore hops route_103 -> Oldale (explore sweep + portal cross, landing the
+    Flora-reachable Oldale tile); cross_scripted_npc plays Flora's gate into route_101;
+    reach_map descends route_101 -> Littleroot -> lab; then _advance_story_dialogue runs
+    the lab OnFrame GivePokedex cutscene until has_pokedex(). Every leg is bounded and
+    surfaces the first failure.
+
+    Returns 'pokedex_delivered' on success, or on failure the first failing leg's status:
+    hop_via_explore / reach_map outcomes ('stall' | 'no_portal' | 'timeout' | 'battle_lost'
+    | 'battle_timeout' | 'battle_interrupted' | 'unreachable') propagate verbatim; the Flora
+    and cutscene legs surface 'flora_no_cross' | 'pokedex_not_delivered'.
+    """
+    hopped = hop_via_explore(
+        emulator, reader, memory, ROUTE_103, OLDALE, "down",
+        move_type_fn=move_type_fn, predict=predict,
+    )
+    if hopped != "arrived":
+        return hopped
+
+    emulator.step(0, _SETTLE_FRAMES)
+    if not cross_scripted_npc(
+        emulator, reader, memory, OLDALE,
+        stand_tile=_FLORA_STAND, face_dir=_FLORA_FACE,
+        cross_dir=_FLORA_CROSS, max_presses=_FLORA_MAX_PRESSES,
+    ):
+        return "flora_no_cross"
+
+    descended = reach_map(
+        emulator, reader, memory, LAB, _RETURN_DIRECTIONS,
+        move_type_fn=move_type_fn, predict=predict,
+    )
+    if descended != "arrived":
+        return descended
+
+    if _advance_story_dialogue(emulator, reader, lambda r: r.has_pokedex()) != "story_done":
+        return "pokedex_not_delivered"
+    return "pokedex_delivered"
