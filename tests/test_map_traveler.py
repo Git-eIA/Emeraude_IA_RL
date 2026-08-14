@@ -613,3 +613,56 @@ def test_hop_via_explore_stalls_when_not_starting_on_from_map(monkeypatch):
         None, None, MapMemory(), (0, 18), (0, 10), "down",
         move_type_fn=None, predict=None,
     ) == "stall"
+
+
+# ---------------------------------------------------------------------------
+# A2: scripted-NPC crossing (Flora gate)
+# ---------------------------------------------------------------------------
+
+
+def test_cross_scripted_npc_crosses_after_dialogue(monkeypatch):
+    world = _OneMapWorld(map_id=(0, 10), pos=(10, 15))
+    memory = MapMemory()
+    monkeypatch.setattr(map_traveler.GridSnapshot, "from_reader",
+                        staticmethod(lambda *a: _FakeSnap({(10, 19)})))
+
+    def fake_walk(emu, rdr, snap, cell, from_map):
+        world.pos = cell
+        return True
+
+    monkeypatch.setattr(map_traveler, "_precision_walk_to", fake_walk)
+
+    def fake_probe(emu, rdr, before, direction):
+        world.map_id = (0, 16)   # pushing DOWN past Flora flips Oldale -> route_101
+
+    monkeypatch.setattr(map_traveler, "probe_step", fake_probe)
+
+    assert map_traveler.cross_scripted_npc(
+        world, world, memory, (0, 10),
+        stand_tile=(10, 19), face_dir="right", cross_dir="down", max_presses=10,
+    ) is True
+    assert memory.portal((0, 10), (0, 16)) is not None
+
+
+def test_cross_scripted_npc_false_if_it_cannot_reach_the_stand_tile(monkeypatch):
+    world = _OneMapWorld(map_id=(0, 10), pos=(10, 15))
+    monkeypatch.setattr(map_traveler.GridSnapshot, "from_reader",
+                        staticmethod(lambda *a: _FakeSnap({(10, 19)})))
+    monkeypatch.setattr(map_traveler, "_precision_walk_to", lambda *a: False)
+    assert map_traveler.cross_scripted_npc(
+        world, world, MapMemory(), (0, 10),
+        stand_tile=(10, 19), face_dir="right", cross_dir="down", max_presses=10,
+    ) is False
+
+
+def test_cross_scripted_npc_false_when_the_gate_never_opens(monkeypatch):
+    world = _OneMapWorld(map_id=(0, 10), pos=(10, 15))
+    monkeypatch.setattr(map_traveler.GridSnapshot, "from_reader",
+                        staticmethod(lambda *a: _FakeSnap({(10, 19)})))
+    monkeypatch.setattr(map_traveler, "_precision_walk_to",
+                        lambda emu, rdr, snap, cell, fm: True)
+    monkeypatch.setattr(map_traveler, "probe_step", lambda *a: None)   # never flips
+    assert map_traveler.cross_scripted_npc(
+        world, world, MapMemory(), (0, 10),
+        stand_tile=(10, 19), face_dir="right", cross_dir="down", max_presses=10,
+    ) is False

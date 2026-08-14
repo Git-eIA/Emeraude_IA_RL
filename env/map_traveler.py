@@ -24,6 +24,7 @@ from env.map_grid_reader import TileKind
 from env.map_memory import MapMemory
 from env.grid_explorer import explore_grid
 from env.route_planner import plan_route
+from emulator import buttons
 
 SETTLE_TRIES = 4   # skip SaveBlock None frames when reading where we landed
 BATTLE_OUTCOMES = ("battle_lost", "battle_timeout", "battle_interrupted")
@@ -121,6 +122,9 @@ _BORDER_SORT = {
     "down": lambda c: -c[1], "up": lambda c: c[1],
     "left": lambda c: c[0], "right": lambda c: -c[0],
 }
+_FACE_FRAMES = 4        # tap toward the NPC to rotate the sprite without stepping
+_NPC_ASPAM_FRAMES = 8   # A-press dwell to play/clear one dialogue box
+_CROSS_PUSH_MAX = 12    # bounded cross-direction steps after the dialogue clears
 
 
 def _precision_step(emulator: Any, key: int) -> None:
@@ -361,6 +365,55 @@ def hop_via_explore(
     if after is not None and after.map_id == to_map:
         return "arrived"
     return "stall"
+
+
+def cross_scripted_npc(
+    emulator: Any,
+    reader: Any,
+    memory: MapMemory,
+    from_map: tuple[int, int],
+    *,
+    stand_tile: tuple[int, int],
+    face_dir: str,
+    cross_dir: str,
+    max_presses: int,
+) -> bool:
+    """Cross an NPC-gated connection: walk to stand_tile, face the NPC, A-spam its
+    dialogue, then push cross_dir until the map changes. Returns True iff the map flipped.
+
+    Flora stands on Oldale's south connection tile; the crossing only opens once her
+    dialogue has played. face_dir (toward the NPC) and cross_dir (toward the next map)
+    are distinct because Flora is faced EAST but the crossing is DOWN.
+    """
+    here = _snapshot_settled(reader)
+    if here is None or here.map_id != from_map:
+        return False
+    snap = GridSnapshot.from_reader(reader.grid_reader, from_map)
+    if snap is None:
+        return False
+    if not _precision_walk_to(emulator, reader, snap, stand_tile, from_map):
+        return False
+    # Tap toward the NPC: the NPC tile walls the player, so this only rotates the sprite.
+    emulator.step(DIRECTION_KEYS[face_dir], _FACE_FRAMES)
+    emulator.step(0, _PRECISION_RELEASE_FRAMES)
+    # Play/clear the dialogue (bounded A-spam; A never steps).
+    for _ in range(max_presses):
+        emulator.step(buttons.KEY_A, _NPC_ASPAM_FRAMES)
+        emulator.step(0, _NPC_ASPAM_FRAMES)
+    # Push toward the next map until it flips.
+    for _ in range(_CROSS_PUSH_MAX):
+        before = _snapshot_settled(reader)
+        if before is None:
+            return False
+        if before.map_id != from_map:
+            memory.record_portal(from_map, stand_tile, cross_dir, before.map_id, True, before.pos)
+            return True
+        probe_step(emulator, reader, before, cross_dir)
+    after = _snapshot_settled(reader)
+    if after is not None and after.map_id != from_map:
+        memory.record_portal(from_map, stand_tile, cross_dir, after.map_id, True, after.pos)
+        return True
+    return False
 
 
 def reach_map(
