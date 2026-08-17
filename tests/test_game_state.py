@@ -12,6 +12,7 @@ from env.game_state import (
     _FLAGS_OFFSET,
     _ITEM_SLOT_SIZE,
     _ITEMS_POCKET_OFFSET,
+    _POKEBALLS_POCKET_OFFSET,
     _SECURITY_KEY_OFFSET,
     EmeraldReader,
     FLAG_SYS_POKEDEX_GET,
@@ -271,12 +272,15 @@ def test_has_running_shoes_false_when_flag_clear() -> None:
     assert _reader_with_flag(FLAG_RECEIVED_RUNNING_SHOES, False).has_running_shoes() is False
 
 
-def _reader_with_item(item_id: int, real_qty: int, security_key: int) -> EmeraldReader:
-    """A reader whose Items pocket slot 0 holds (item_id, real_qty) encrypted."""
+def _reader_with_item(
+    item_id: int, real_qty: int, security_key: int,
+    pocket_offset: int = _ITEMS_POCKET_OFFSET,
+) -> EmeraldReader:
+    """A reader whose pocket (default Items) slot 0 holds (item_id, real_qty) encrypted."""
     sb1 = 0x02025734
     sb2 = 0x02027000
     stored_qty = real_qty ^ (security_key & 0xFFFF)
-    slot_addr = sb1 + _ITEMS_POCKET_OFFSET
+    slot_addr = sb1 + pocket_offset
     key_addr = sb2 + _SECURITY_KEY_OFFSET
 
     def read(addr: int, size: int) -> bytes:
@@ -305,4 +309,34 @@ def test_has_item_below_threshold_is_false() -> None:
 
 def test_has_item_absent_is_false() -> None:
     reader = _reader_with_item(item_id=0x0, real_qty=0, security_key=0x1234ABCD)
+    assert reader.has_item(POKE_BALL_ITEM_ID, min_qty=1) is False
+
+
+def _reader_with_poke_balls(real_qty: int, security_key: int) -> EmeraldReader:
+    """A reader whose Balls pocket slot 0 holds (POKE_BALL, real_qty) encrypted."""
+    return _reader_with_item(
+        POKE_BALL_ITEM_ID, real_qty, security_key,
+        pocket_offset=_POKEBALLS_POCKET_OFFSET,
+    )
+
+
+def test_has_poke_balls_decrypts_quantity_and_meets_threshold() -> None:
+    reader = _reader_with_poke_balls(real_qty=5, security_key=0x1234ABCD)
+    assert reader.has_poke_balls(min_qty=5) is True
+
+
+def test_has_poke_balls_below_threshold_is_false() -> None:
+    reader = _reader_with_poke_balls(real_qty=3, security_key=0x1234ABCD)
+    assert reader.has_poke_balls(min_qty=5) is False
+
+
+def test_has_poke_balls_absent_is_false() -> None:
+    reader = _reader_with_item(item_id=0x0, real_qty=0, security_key=0x1234ABCD)
+    assert reader.has_poke_balls(min_qty=1) is False
+
+
+def test_poke_balls_not_visible_via_has_item() -> None:
+    """Regression: Poke Balls live in the Balls pocket, not the Items pocket that
+    has_item scans — the bug this fix corrects. has_item must not see them."""
+    reader = _reader_with_poke_balls(real_qty=5, security_key=0x1234ABCD)
     assert reader.has_item(POKE_BALL_ITEM_ID, min_qty=1) is False
