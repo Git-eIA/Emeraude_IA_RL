@@ -74,6 +74,11 @@ _ITEMS_POCKET_OFFSET = 0x560   # offsetof(SaveBlock1, bagPocket_Items) — candi
 _SECURITY_KEY_OFFSET = 0xAC    # offsetof(SaveBlock2, encryptionKey)
 _ITEM_SLOT_SIZE = 4            # u16 itemId + u16 quantity
 _ITEMS_POCKET_CAPACITY = 30    # bound the scan (code-safety #2)
+# Poke Balls live in the *Balls* pocket, a separate ItemSlot array that follows
+# Items (30) then KeyItems (30). Confirmed by probe: SaveBlock1+0x650, 5 balls
+# delivered by the lab GivePokedex cutscene. has_item scans Items and never sees them.
+_POKEBALLS_POCKET_OFFSET = 0x650   # offsetof(SaveBlock1, bagPocket_PokeBalls)
+_POKEBALLS_POCKET_CAPACITY = 16    # bound the scan (code-safety #2)
 
 
 @dataclass(frozen=True)
@@ -148,13 +153,30 @@ class EmeraldReader:
 
     def has_item(self, item_id: int, min_qty: int = 1) -> bool:
         """True if the Items pocket holds >= min_qty of item_id (qty XOR-decrypted)."""
+        return self._pocket_has(
+            _ITEMS_POCKET_OFFSET, _ITEMS_POCKET_CAPACITY, item_id, min_qty
+        )
+
+    def has_poke_balls(self, min_qty: int = 1) -> bool:
+        """True if the Balls pocket holds >= min_qty Poke Balls (qty XOR-decrypted).
+
+        Poke Balls are in a separate pocket from has_item's Items pocket; the lab
+        GivePokedex cutscene delivers 5 alongside the Pokédex."""
+        return self._pocket_has(
+            _POKEBALLS_POCKET_OFFSET, _POKEBALLS_POCKET_CAPACITY, POKE_BALL_ITEM_ID, min_qty
+        )
+
+    def _pocket_has(
+        self, pocket_offset: int, capacity: int, item_id: int, min_qty: int
+    ) -> bool:
+        """True if the bag pocket at pocket_offset holds >= min_qty of item_id."""
         sb1 = self._save_block1()
         sb2 = self._save_block2()
         if sb1 is None or sb2 is None:
             return False
         key = int.from_bytes(self._read(sb2 + _SECURITY_KEY_OFFSET, 4), "little") & 0xFFFF
-        base = sb1 + _ITEMS_POCKET_OFFSET
-        for slot in range(_ITEMS_POCKET_CAPACITY):
+        base = sb1 + pocket_offset
+        for slot in range(capacity):
             entry = self._read(base + slot * _ITEM_SLOT_SIZE, _ITEM_SLOT_SIZE)
             slot_id = int.from_bytes(entry[0:2], "little")
             if slot_id != item_id:
