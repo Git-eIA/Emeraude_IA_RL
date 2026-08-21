@@ -370,8 +370,9 @@ class _CutsceneReader:
     def has_pokedex(self):
         return True
 
-    def has_poke_balls(self, min_qty):
-        return self._emu.a_presses >= self._presses_to_done
+    def has_poke_balls(self, min_qty: int = 1) -> bool:
+        # Pin the production threshold: only 5 balls are ever delivered.
+        return min_qty <= 5 and self._emu.a_presses >= self._presses_to_done
 
     def birch_lab_state(self):
         return 5 if self._emu.a_presses >= self._presses_to_done else 4
