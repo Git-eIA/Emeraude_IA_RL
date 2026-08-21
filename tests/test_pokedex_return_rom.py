@@ -2,9 +2,10 @@
 
 The single load-bearing proof of the A2 chain: hop_via_explore hops route_103 -> Oldale,
 cross_scripted_npc plays Flora's gate into route_101, reach_map descends to the lab, and
-the OnFrame GivePokedex cutscene delivers the Pokédex. Asserts has_pokedex() True + lab
-arrival and dumps states/post_pokedex.state. Slow (~minute, Fighter-driven). Triple-skips
-without ROM / Fighter checkpoint / post_rival.state.
+the OnFrame GivePokedex cutscene delivers the Pokédex. Asserts has_pokedex() True + 5 balls
++ lab arrival, dumps states/post_pokedex.state FIRST, then reloads the dump and verifies
+control (anti-false-lock pin). Slow (~minute, Fighter-driven). Triple-skips without ROM /
+Fighter checkpoint / post_rival.state.
 """
 from __future__ import annotations
 
@@ -69,4 +70,18 @@ def test_run_pokedex_return_delivers_the_pokedex() -> None:
     settled = world.snapshot()
     assert settled is not None and settled.map_id == LAB, settled
 
-    Path("states/post_pokedex.state").write_bytes(emu.save_state())
+    # _finish_lab_cutscene now guarantees full delivery, not just the early flag.
+    assert reader.has_poke_balls(5) is True
+    assert reader.birch_lab_state() == 5
+
+    # Dump FIRST, then reload the dump and verify control on the RELOADED session:
+    # the pin must prove the DUMP is healthy, and verification must not mutate it.
+    state_bytes = emu.save_state()
+    Path("states/post_pokedex.state").write_bytes(state_bytes)
+
+    from tests.conftest import control_returns
+
+    emu2 = GbaEmulator(ROM)
+    emu2.load_state(state_bytes)
+    emu2.step(0, 4)
+    assert control_returns(emu2), "reloaded post_pokedex.state is control-locked"

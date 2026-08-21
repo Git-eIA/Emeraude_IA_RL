@@ -45,6 +45,7 @@ def build_memory(
     party_count: int,
     clock_set: bool = False,
     town_state: int = 0,
+    lab_state: int = 0,
 ) -> dict[int, bytes]:
     sb1 = 0x02025A00  # arbitrary but valid EWRAM address for the fake
     save_block1 = bytearray(0x1600)  # must fit the vars array up to 0x159C
@@ -60,6 +61,8 @@ def build_memory(
         save_block1[0x1270 + 10] |= 0b10
     # VAR_LITTLEROOT_TOWN_STATE = 0x4050 -> vars index 0x50, u16 LE
     save_block1[0x139C + 0xA0 : 0x139C + 0xA2] = town_state.to_bytes(2, "little")
+    # VAR_BIRCH_LAB_STATE = 0x4084 -> vars index 0x84, u16 LE
+    save_block1[0x139C + 0x108 : 0x139C + 0x10A] = lab_state.to_bytes(2, "little")
     return {
         SAVE_BLOCK1_PTR: sb1.to_bytes(4, "little"),
         sb1: bytes(save_block1),
@@ -127,6 +130,26 @@ def test_read_flag_invalid_pointer_is_false():
     memory = {SAVE_BLOCK1_PTR: (0x00000000).to_bytes(4, "little")}
     reader = EmeraldReader(make_fake_read(memory))
     assert reader.read_flag(0x867) is False
+
+
+def test_birch_lab_state_reads_the_var():
+    memory = build_memory(
+        x=6, y=5, map_group=1, map_num=4, badge_bits=0, party_count=1, lab_state=5
+    )
+    reader = EmeraldReader(make_fake_read(memory))
+    assert reader.birch_lab_state() == 5
+
+
+def test_birch_lab_state_zero_by_default():
+    memory = build_memory(x=6, y=5, map_group=1, map_num=4, badge_bits=0, party_count=1)
+    reader = EmeraldReader(make_fake_read(memory))
+    assert reader.birch_lab_state() == 0
+
+
+def test_birch_lab_state_invalid_pointer_is_none():
+    memory = {SAVE_BLOCK1_PTR: (0x00000000).to_bytes(4, "little")}
+    reader = EmeraldReader(make_fake_read(memory))
+    assert reader.birch_lab_state() is None
 
 
 def test_clock_set_flag_read_into_state():

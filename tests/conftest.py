@@ -82,3 +82,30 @@ class FakeEmulator:
         # numpy seeds must be non-negative; abs() handles negative coordinates.
         rng = np.random.default_rng(seed=abs(self.x * 1000 + self.y))
         return rng.integers(0, 255, size=(160, 240, 3), dtype=np.uint8)
+
+
+def control_returns(emu) -> bool:
+    """True when a direction press moves the player within a few tries (ROM smokes).
+
+    Anti-false-lock pin shared by the pokedex and shoes smokes: presses DOWN
+    (12/4 frames); if the player did not move, drains a possibly open dialogue
+    box with B x2 before retrying (the mom-event probe's P6 pattern)."""
+    from emulator import buttons
+    from env.game_state import EmeraldReader
+
+    reader = EmeraldReader(emu.read_bytes)
+    for _ in range(5):
+        before = reader.player_state()
+        emu.step(buttons.KEY_DOWN, 12)
+        emu.step(0, 4)
+        after = reader.player_state()
+        if (
+            before is not None and after is not None
+            and ((before.x, before.y) != (after.x, after.y)
+                 or (before.map_group, before.map_num) != (after.map_group, after.map_num))
+        ):
+            return True
+        for _ in range(2):
+            emu.step(buttons.KEY_B, 8)
+            emu.step(0, 8)
+    return False
