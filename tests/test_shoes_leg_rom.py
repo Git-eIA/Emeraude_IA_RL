@@ -18,10 +18,7 @@ import pytest
 ROM = os.environ.get("POKEMON_EMERALD_ROM")
 STATE = "states/post_pokedex.state"
 
-pytestmark = [
-    pytest.mark.skipif(not ROM, reason="POKEMON_EMERALD_ROM not set"),
-    pytest.mark.skipif(not Path(STATE).exists(), reason="post_pokedex.state missing"),
-]
+pytestmark = pytest.mark.skipif(not ROM, reason="POKEMON_EMERALD_ROM not set")
 
 
 def test_run_shoes_leg_delivers_the_running_shoes() -> None:
@@ -32,6 +29,12 @@ def test_run_shoes_leg_delivers_the_running_shoes() -> None:
     from env.world_reader import WorldReader
     from tests.conftest import control_returns
 
+    # Checked at RUN time, not collection time: in a fresh single-session run,
+    # test_pokedex_return_rom.py dumps this state AFTER collection happened —
+    # a collection-time skipif would silently skip this smoke forever.
+    if not Path(STATE).exists():
+        pytest.skip("post_pokedex.state missing (run test_pokedex_return_rom.py first)")
+
     emu = GbaEmulator(ROM)
     with open(STATE, "rb") as fh:
         emu.load_state(fh.read())
@@ -40,6 +43,12 @@ def test_run_shoes_leg_delivers_the_running_shoes() -> None:
     reader = EmeraldReader(emu.read_bytes)
     world = WorldReader(emu.read_bytes)
     memory = MapMemory()
+
+    # Precondition: the consumed dump must be the HEALTHY post-release state
+    # (fail loudly here rather than deep inside run_shoes_leg).
+    assert reader.has_pokedex() is True
+    assert reader.has_poke_balls(5) is True
+    assert reader.birch_lab_state() == 5
 
     # run_shoes_leg needs snapshot/grid_reader (world) AND flags/vars (reader);
     # a thin adapter forwards both, matching test_pokedex_return_rom.py.

@@ -343,14 +343,19 @@ def hop_via_explore(
     sweep lands at the reachable (11,1) instead.
 
     Returns 'arrived' on success, else 'stall' (not on from_map / explore left to a
-    third map) or 'no_portal' (no to_map portal discovered).
+    third map), 'no_portal' (no to_map portal discovered), or a battle outcome
+    ('battle_lost' | 'battle_timeout' | 'battle_interrupted') propagated verbatim
+    from the sweep or the crossing — a whiteout relocation must never be masked
+    as 'no_portal'.
     """
     here = _snapshot_settled(reader)
     if here is None or here.map_id != from_map:
         return "stall"
     entry = here.pos
-    explore_grid(emulator, reader, memory, from_map,
-                 move_type_fn=move_type_fn, predict=predict)
+    sweep = explore_grid(emulator, reader, memory, from_map,
+                         move_type_fn=move_type_fn, predict=predict)
+    if sweep in BATTLE_OUTCOMES:
+        return sweep
     now = _snapshot_settled(reader)
     if now is not None and now.map_id == to_map:
         memory.record_portal(from_map, entry, direction, to_map, True, now.pos)
@@ -360,7 +365,9 @@ def hop_via_explore(
         return "no_portal"
     if now is None or now.map_id != from_map:
         return "stall"
-    _cross_portal(emulator, reader, memory, portal, move_type_fn, predict)
+    crossed = _cross_portal(emulator, reader, memory, portal, move_type_fn, predict)
+    if crossed in BATTLE_OUTCOMES:
+        return crossed
     after = _snapshot_settled(reader)
     if after is not None and after.map_id == to_map:
         return "arrived"

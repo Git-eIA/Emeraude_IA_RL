@@ -607,6 +607,42 @@ def test_hop_via_explore_reports_no_portal_when_none_is_discovered(monkeypatch):
     ) == "no_portal"
 
 
+def test_hop_via_explore_propagates_a_battle_outcome_from_the_sweep(monkeypatch):
+    # A whiteout during the sweep relocates the player (Pokemon Center); the hop
+    # must surface the battle outcome, not mask it as 'no_portal'.
+    state = {"map": (0, 18), "pos": (11, 0)}
+    monkeypatch.setattr(map_traveler, "_snapshot_settled",
+                        lambda rdr: _Snap(state["map"], state["pos"]))
+
+    def fake_explore(emu, rdr, mem, tmap, **kw):
+        state["map"], state["pos"] = (1, 4), (7, 8)   # whiteout relocation
+        return "battle_lost"
+
+    monkeypatch.setattr(map_traveler, "explore_grid", fake_explore)
+    assert map_traveler.hop_via_explore(
+        None, None, MapMemory(), (0, 18), (0, 10), "down",
+        move_type_fn=None, predict=None,
+    ) == "battle_lost"
+
+
+def test_hop_via_explore_propagates_a_battle_outcome_from_the_portal_crossing(monkeypatch):
+    state = {"map": (0, 18), "pos": (11, 0)}
+    memory = MapMemory()
+    monkeypatch.setattr(map_traveler, "_snapshot_settled",
+                        lambda rdr: _Snap(state["map"], state["pos"]))
+
+    def fake_explore(emu, rdr, mem, tmap, **kw):
+        mem.record_portal((0, 18), (11, 9), "down", (0, 10), True, (11, 1))
+        return "complete"
+
+    monkeypatch.setattr(map_traveler, "explore_grid", fake_explore)
+    monkeypatch.setattr(map_traveler, "_cross_portal", lambda *a: "battle_lost")
+    assert map_traveler.hop_via_explore(
+        None, None, memory, (0, 18), (0, 10), "down",
+        move_type_fn=None, predict=None,
+    ) == "battle_lost"
+
+
 def test_hop_via_explore_stalls_when_not_starting_on_from_map(monkeypatch):
     monkeypatch.setattr(map_traveler, "_snapshot_settled", lambda rdr: _Snap((0, 16), (0, 0)))
     assert map_traveler.hop_via_explore(
