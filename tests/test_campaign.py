@@ -479,6 +479,15 @@ def test_drain_mom_event_times_out():
     assert emu.a_presses == 80 * 4  # bounded at _SHOES_MAX_CYCLES x _SHOES_A_PER_CYCLE
 
 
+def test_drain_mom_event_detects_completion_on_the_last_cycle():
+    # Pin the trailing _done() re-check: completion lands exactly with the last
+    # cycle's presses (80 * 4 A), after the loop's final check-first has run.
+    emu = _WalkEmu()
+    reader = _DrainReader(emu, shoes_after=320, town4_after=320)
+    assert _drain_mom_event(emu, reader) is True
+    assert emu.a_presses == 320  # no 81st cycle was needed
+
+
 class _ControlReader:
     """Position tracks DOWN presses only once b_needed B presses drained the boxes."""
 
