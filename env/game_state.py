@@ -62,6 +62,10 @@ _VARS_START = 0x4000  # first var id (pret include/constants/vars.h)
 # The twin guarding Littleroot's north exit steps aside once this var is >= 1
 # (set by the Pokeball cutscene in the rival's bedroom).
 VAR_LITTLEROOT_TOWN_STATE = 0x4050
+# The lab OnFrame GivePokedex cutscene steps this var 4 -> 5 exactly when the script
+# completes (Pokédex + 5 Poke Balls delivered, releaseall run). Public read so drivers
+# can detect real completion instead of stopping at the early has_pokedex() flag.
+VAR_BIRCH_LAB_STATE = 0x4084
 
 _EWRAM_START = 0x02000000
 _EWRAM_END = 0x02040000
@@ -131,6 +135,13 @@ class EmeraldReader:
     def has_running_shoes(self) -> bool:
         """True once the running shoes have been received (Route 101 cutscene)."""
         return self.read_flag(FLAG_RECEIVED_RUNNING_SHOES)
+
+    def birch_lab_state(self) -> int | None:
+        """VAR_BIRCH_LAB_STATE value, or None while save blocks are relocating."""
+        sb1 = self._save_block1()
+        if sb1 is None:
+            return None
+        return self._var(sb1, VAR_BIRCH_LAB_STATE)
 
     def party_levels(self) -> list[int]:
         """Levels of the party Pokémon in slot order; empty list when no party."""
