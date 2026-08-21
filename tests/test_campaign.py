@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from emulator import buttons
 from env import campaign
 from env.campaign import (
@@ -12,9 +14,13 @@ from env.campaign import (
     ROUTE_101,
     ROUTE_103,
     _RETURN_DIRECTIONS,
+    _drain_mom_event,
+    _exit_lab,
     _finish_lab_cutscene,
+    _verify_control,
     run_campaign,
     run_pokedex_return,
+    run_shoes_leg,
 )
 from env.map_memory import MapMemory
 from env.orders import Order
@@ -401,3 +407,160 @@ def test_finish_lab_cutscene_times_out_without_b_release():
     reader = _CutsceneReader(emu, presses_to_done=10_000)  # never completes
     assert _finish_lab_cutscene(emu, reader) is False
     assert not any(key == buttons.KEY_B for key, _ in emu.steps)
+
+
+# ---------------------------------------------------------------------------
+# Shoes driver: leg helpers
+# ---------------------------------------------------------------------------
+
+
+class _WalkEmu(_RecordingEmu):
+    @property
+    def down_presses(self):
+        return sum(1 for key, _ in self.steps if key == buttons.KEY_DOWN)
+
+    @property
+    def b_presses(self):
+        return sum(1 for key, _ in self.steps if key == buttons.KEY_B)
+
+
+class _ExitReader:
+    """In the lab until downs_needed DOWN presses have landed, then Littleroot."""
+
+    def __init__(self, emu, downs_needed):
+        self._emu = emu
+        self._downs_needed = downs_needed
+
+    def player_state(self):
+        where = LITTLEROOT if self._emu.down_presses >= self._downs_needed else LAB
+        return SimpleNamespace(map_group=where[0], map_num=where[1], x=7, y=16, town_state=3)
+
+
+def test_exit_lab_stops_when_littleroot_is_reached():
+    emu = _WalkEmu()
+    assert _exit_lab(emu, _ExitReader(emu, downs_needed=11)) is True
+    assert emu.down_presses == 11  # probe measured 11; no extra presses after arrival
+
+
+def test_exit_lab_times_out_when_the_map_never_changes():
+    emu = _WalkEmu()
+    assert _exit_lab(emu, _ExitReader(emu, downs_needed=10_000)) is False
+    assert emu.down_presses == 60  # bounded at _LAB_EXIT_MAX_PRESSES
+
+
+class _DrainReader:
+    """Shoes land after shoes_after A presses; town_state hits 4 after town4_after."""
+
+    def __init__(self, emu, shoes_after, town4_after):
+        self._emu = emu
+        self._shoes_after = shoes_after
+        self._town4_after = town4_after
+
+    def has_running_shoes(self):
+        return self._emu.a_presses >= self._shoes_after
+
+    def player_state(self):
+        ts = 4 if self._emu.a_presses >= self._town4_after else 3
+        return SimpleNamespace(map_group=0, map_num=9, x=10, y=9, town_state=ts)
+
+
+def test_drain_mom_event_requires_shoes_and_town_state_4():
+    # Pin the AND: shoes at 8 presses, town_state 4 only at 16 — the drain must
+    # NOT stop at the shoes flag alone (same class of bug as the pokedex false-lock).
+    emu = _WalkEmu()
+    assert _drain_mom_event(emu, _DrainReader(emu, shoes_after=8, town4_after=16)) is True
+    assert emu.a_presses == 16
+
+
+def test_drain_mom_event_times_out():
+    emu = _WalkEmu()
+    reader = _DrainReader(emu, shoes_after=10**6, town4_after=10**6)
+    assert _drain_mom_event(emu, reader) is False
+    assert emu.a_presses == 80 * 4  # bounded at _SHOES_MAX_CYCLES x _SHOES_A_PER_CYCLE
+
+
+class _ControlReader:
+    """Position tracks DOWN presses only once b_needed B presses drained the boxes."""
+
+    def __init__(self, emu, b_needed):
+        self._emu = emu
+        self._b_needed = b_needed
+
+    def player_state(self):
+        moved = self._emu.b_presses >= self._b_needed
+        y = 9 + (self._emu.down_presses if moved else 0)
+        return SimpleNamespace(map_group=0, map_num=9, x=10, y=y, town_state=4)
+
+
+def test_verify_control_succeeds_when_a_down_press_moves():
+    emu = _WalkEmu()
+    assert _verify_control(emu, _ControlReader(emu, b_needed=0)) is True
+    assert emu.down_presses == 1
+
+
+def test_verify_control_drains_a_reopened_box_with_b_then_succeeds():
+    # Probe P6 pattern: the drain's last A may have re-opened a box, so a failed
+    # DOWN is followed by B x2 before retrying.
+    emu = _WalkEmu()
+    assert _verify_control(emu, _ControlReader(emu, b_needed=2)) is True
+    assert emu.down_presses == 2
+    assert emu.b_presses == 2
+
+
+def test_verify_control_times_out_when_nothing_ever_moves():
+    class _Frozen:
+        def player_state(self):
+            return SimpleNamespace(map_group=1, map_num=4, x=6, y=5, town_state=3)
+
+    emu = _WalkEmu()
+    assert _verify_control(emu, _Frozen()) is False
+    assert emu.down_presses == 30  # bounded at _CONTROL_MAX_CYCLES
+
+
+# ---------------------------------------------------------------------------
+# Shoes driver: run_shoes_leg orchestration
+# ---------------------------------------------------------------------------
+
+
+def _wire_shoes(monkeypatch, *, exit_lab, hop, drain, control):
+    """Stub the four legs of run_shoes_leg; record their calls in order."""
+    calls = []
+    monkeypatch.setattr(
+        campaign, "_exit_lab", lambda *a, **k: (calls.append("exit"), exit_lab)[1],
+    )
+    monkeypatch.setattr(
+        campaign, "hop_via_explore",
+        lambda *a, **k: (calls.append(("hop", a[3], a[4], a[5])), hop)[1],
+    )
+    monkeypatch.setattr(
+        campaign, "_drain_mom_event", lambda *a, **k: (calls.append("drain"), drain)[1],
+    )
+    monkeypatch.setattr(
+        campaign, "_verify_control", lambda *a, **k: (calls.append("control"), control)[1],
+    )
+    return calls
+
+
+def test_run_shoes_leg_delivers_and_ignores_the_hop_result(monkeypatch):
+    # 'no_portal' is the EXPECTED hop outcome — the mom event freezes the sweep;
+    # the leg must succeed regardless of what hop_via_explore returns.
+    calls = _wire_shoes(monkeypatch, exit_lab=True, hop="no_portal", drain=True, control=True)
+    assert run_shoes_leg(_Emu(), None, MapMemory()) == "shoes_delivered"
+    assert calls == ["exit", ("hop", LITTLEROOT, ROUTE_101, "up"), "drain", "control"]
+
+
+def test_run_shoes_leg_surfaces_the_lab_exit_timeout(monkeypatch):
+    # A mid-cutscene start (stale post_pokedex.state) fails here cleanly.
+    calls = _wire_shoes(monkeypatch, exit_lab=False, hop="arrived", drain=True, control=True)
+    assert run_shoes_leg(_Emu(), None, MapMemory()) == "lab_exit_timeout"
+    assert calls == ["exit"]  # no hop/drain after a failed exit
+
+
+def test_run_shoes_leg_surfaces_the_shoes_timeout(monkeypatch):
+    _wire_shoes(monkeypatch, exit_lab=True, hop="arrived", drain=False, control=True)
+    assert run_shoes_leg(_Emu(), None, MapMemory()) == "shoes_timeout"
+
+
+def test_run_shoes_leg_surfaces_the_control_timeout(monkeypatch):
+    _wire_shoes(monkeypatch, exit_lab=True, hop="arrived", drain=True, control=False)
+    assert run_shoes_leg(_Emu(), None, MapMemory()) == "control_timeout"

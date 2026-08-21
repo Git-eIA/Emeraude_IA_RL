@@ -49,6 +49,16 @@ _FLORA_MAX_PRESSES = 60
 _RELEASE_B_PRESSES = 10  # 5+ works, 3 insufficient (probe-measured)
 _BUTTON_FRAMES = 8       # A/B press and release frames (probe-proven cadence)
 
+# run_shoes_leg bounds (probe-measured 2026-08-21, margin >= x2). Direction presses
+# use the 12/4 cadence the probes and precision walks share.
+_MOVE_PRESS_FRAMES = 12
+_MOVE_REST_FRAMES = 4
+_LAB_EXIT_MAX_PRESSES = 60  # measured: 11 DOWN presses lab -> Littleroot
+_SHOES_MAX_CYCLES = 80      # measured: ~14 cycles to shoes + town_state 4
+_SHOES_A_PER_CYCLE = 4
+_CONTROL_MAX_CYCLES = 30    # measured: 1 cycle for control to return
+_CONTROL_B_PRESSES = 2      # drain a box the drain's last A re-opened (probe P6)
+
 
 @dataclass(frozen=True)
 class Milestone:
@@ -171,6 +181,95 @@ def _finish_lab_cutscene(emulator: Any, reader: Any) -> bool:
     for _ in range(_RELEASE_B_PRESSES):
         _press(emulator, buttons.KEY_B, _BUTTON_FRAMES, _BUTTON_FRAMES)
     return True
+
+
+def _exit_lab(emulator: Any, reader: Any) -> bool:
+    """Walk DOWN out of the lab until the map is Littleroot (bounded)."""
+    for _ in range(_LAB_EXIT_MAX_PRESSES):
+        _press(emulator, buttons.KEY_DOWN, _MOVE_PRESS_FRAMES, _MOVE_REST_FRAMES)
+        ps = reader.player_state()
+        if ps is not None and (ps.map_group, ps.map_num) == LITTLEROOT:
+            return True
+    return False
+
+
+def _drain_mom_event(emulator: Any, reader: Any) -> bool:
+    """A/B cycles until the shoes land AND town_state reaches 4 (bounded).
+
+    The shoes flag flips before the event script finishes; town_state 3 -> 4 marks
+    real completion, so both are required (anti-false-lock, same as the cutscene)."""
+
+    def _done() -> bool:
+        ps = reader.player_state()
+        return reader.has_running_shoes() and ps is not None and ps.town_state == 4
+
+    # Check-first loop with a final re-check: presses are bounded at exactly
+    # _SHOES_MAX_CYCLES cycles, and a state completed BY the last cycle's presses
+    # is still detected by the trailing _done().
+    for _ in range(_SHOES_MAX_CYCLES):
+        if _done():
+            return True
+        for _ in range(_SHOES_A_PER_CYCLE):
+            _press(emulator, buttons.KEY_A, _BUTTON_FRAMES, _BUTTON_FRAMES)
+        _press(emulator, buttons.KEY_B, _BUTTON_FRAMES, _BUTTON_FRAMES)
+    return _done()
+
+
+def _verify_control(emulator: Any, reader: Any) -> bool:
+    """Prove control returned: a DOWN press changes the position or map (bounded).
+
+    A still-open dialogue box swallows direction input, so each failed press is
+    followed by B presses to drain it before retrying (probe P6 pattern)."""
+    for _ in range(_CONTROL_MAX_CYCLES):
+        before = reader.player_state()
+        _press(emulator, buttons.KEY_DOWN, _MOVE_PRESS_FRAMES, _MOVE_REST_FRAMES)
+        after = reader.player_state()
+        if (
+            before is not None and after is not None
+            and ((before.x, before.y) != (after.x, after.y)
+                 or (before.map_group, before.map_num) != (after.map_group, after.map_num))
+        ):
+            return True
+        for _ in range(_CONTROL_B_PRESSES):
+            _press(emulator, buttons.KEY_B, _BUTTON_FRAMES, _BUTTON_FRAMES)
+    return False
+
+
+def run_shoes_leg(
+    emulator: Any,
+    reader: Any,
+    memory: Any,
+    *,
+    move_type_fn: Any = None,
+    predict: Any = None,
+) -> str:
+    """Drive a healthy post-Pokédex lab state through the mom/running-shoes event.
+
+    Exits the lab (bounded DOWN walk), then walks north via hop_via_explore whose
+    result is DELIBERATELY ignored: the scripted mom event intercepts any northbound
+    nav in Littleroot, so 'no_portal' IS the expected success path — the
+    shoes/town_state predicate is the arbiter, not the hop status. Bounded A/B
+    cycles drain the event, then a DOWN press proves control returned. The reader
+    is the same composite contract as run_pokedex_return (WorldReader snapshot/grid
+    attributes for the hop, EmeraldReader flags/vars for the predicates).
+
+    Returns 'shoes_delivered' | 'lab_exit_timeout' | 'shoes_timeout' |
+    'control_timeout'.
+    """
+    if not _exit_lab(emulator, reader):
+        return "lab_exit_timeout"
+    emulator.step(0, _SETTLE_FRAMES)
+    # Result intentionally unchecked — see docstring; a timeout in the drain below
+    # surfaces honestly if the event unexpectedly never fires.
+    hop_via_explore(
+        emulator, reader, memory, LITTLEROOT, ROUTE_101, "up",
+        move_type_fn=move_type_fn, predict=predict,
+    )
+    if not _drain_mom_event(emulator, reader):
+        return "shoes_timeout"
+    if not _verify_control(emulator, reader):
+        return "control_timeout"
+    return "shoes_delivered"
 
 
 def run_pokedex_return(
