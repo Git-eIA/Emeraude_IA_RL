@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from emulator import buttons
 from env.map_traveler import cross_scripted_npc, hop_via_explore, reach_map
 from env.orders import Order, _advance_story_dialogue, execute_order, reached
 
@@ -40,6 +41,13 @@ _FLORA_STAND = (10, 19)
 _FLORA_FACE = "right"
 _FLORA_CROSS = "down"
 _FLORA_MAX_PRESSES = 60
+
+# GivePokedex cutscene completion (2026-08-17 investigation + 2026-08-21 probe):
+# the Pokédex flag flips ~55 A-presses BEFORE the 5 Poke Balls land and the script's
+# releaseall; continued A-spam re-talks Birch, so B presses must drain the re-opened
+# dialogue boxes before any direction input can move the player.
+_RELEASE_B_PRESSES = 10  # 5+ works, 3 insufficient (probe-measured)
+_BUTTON_FRAMES = 8       # A/B press and release frames (probe-proven cadence)
 
 
 @dataclass(frozen=True)
@@ -142,6 +150,29 @@ def run_campaign(
     return "campaign_complete"
 
 
+def _press(emulator: Any, key: int, hold: int, rest: int) -> None:
+    """Press one key for hold frames, then rest with no input."""
+    emulator.step(key, hold)
+    emulator.step(0, rest)
+
+
+def _finish_lab_cutscene(emulator: Any, reader: Any) -> bool:
+    """Play the GivePokedex cutscene to completion and return WITH control.
+
+    Stopping at has_pokedex() alone dumps a mid-cutscene state that resumes as a
+    false control-lock; real completion is dex + 5 balls + VAR_BIRCH_LAB_STATE==5.
+    After that, B presses close the Birch boxes the extra A-spam re-opened."""
+    done = _advance_story_dialogue(
+        emulator, reader,
+        lambda r: r.has_pokedex() and r.has_poke_balls(5) and r.birch_lab_state() == 5,
+    )
+    if done != "story_done":
+        return False
+    for _ in range(_RELEASE_B_PRESSES):
+        _press(emulator, buttons.KEY_B, _BUTTON_FRAMES, _BUTTON_FRAMES)
+    return True
+
+
 def run_pokedex_return(
     emulator: Any,
     reader: Any,
@@ -154,9 +185,10 @@ def run_pokedex_return(
 
     hop_via_explore hops route_103 -> Oldale (explore sweep + portal cross, landing the
     Flora-reachable Oldale tile); cross_scripted_npc plays Flora's gate into route_101;
-    reach_map descends route_101 -> Littleroot -> lab; then _advance_story_dialogue runs
-    the lab OnFrame GivePokedex cutscene until has_pokedex(). Every leg is bounded and
-    surfaces the first failure.
+    reach_map descends route_101 -> Littleroot -> lab; then _finish_lab_cutscene plays
+    the lab OnFrame GivePokedex cutscene to completion (dex + 5 balls + VAR_BIRCH_LAB_STATE==5)
+    and drains the re-opened Birch dialogue with B, so the driver returns WITH control.
+    Every leg is bounded and surfaces the first failure.
 
     Returns 'pokedex_delivered' on success, or on failure the first failing leg's status:
     hop_via_explore / reach_map outcomes ('stall' | 'no_portal' | 'timeout' | 'battle_lost'
@@ -185,6 +217,6 @@ def run_pokedex_return(
     if descended != "arrived":
         return descended
 
-    if _advance_story_dialogue(emulator, reader, lambda r: r.has_pokedex()) != "story_done":
+    if not _finish_lab_cutscene(emulator, reader):
         return "pokedex_not_delivered"
     return "pokedex_delivered"

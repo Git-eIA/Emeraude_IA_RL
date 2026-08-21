@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from emulator import buttons
 from env import campaign
 from env.campaign import (
     CAMPAIGN,
@@ -11,6 +12,7 @@ from env.campaign import (
     ROUTE_101,
     ROUTE_103,
     _RETURN_DIRECTIONS,
+    _finish_lab_cutscene,
     run_campaign,
     run_pokedex_return,
 )
@@ -297,7 +299,7 @@ def _wire_return(monkeypatch, *, hop, flora, descent, cutscene):
         lambda *a, **k: (calls.append(("reach", a[3])), descent)[1],
     )
     monkeypatch.setattr(
-        campaign, "_advance_story_dialogue",
+        campaign, "_finish_lab_cutscene",
         lambda *a, **k: (calls.append(("cutscene",)), cutscene)[1],
     )
     return calls
@@ -305,7 +307,7 @@ def _wire_return(monkeypatch, *, hop, flora, descent, cutscene):
 
 def test_run_pokedex_return_delivers_on_the_happy_path(monkeypatch):
     calls = _wire_return(monkeypatch, hop="arrived", flora=True,
-                         descent="arrived", cutscene="story_done")
+                         descent="arrived", cutscene=True)
     assert run_pokedex_return(_Emu(), None, MapMemory()) == "pokedex_delivered"
     assert calls == [
         ("hop", ROUTE_103, OLDALE), ("flora", OLDALE),
@@ -316,23 +318,85 @@ def test_run_pokedex_return_delivers_on_the_happy_path(monkeypatch):
 def test_run_pokedex_return_propagates_the_oldale_hop_outcome(monkeypatch):
     # hop_via_explore's own status (stall/no_portal/battle_lost/...) surfaces verbatim.
     _wire_return(monkeypatch, hop="stall", flora=True,
-                 descent="arrived", cutscene="story_done")
+                 descent="arrived", cutscene=True)
     assert run_pokedex_return(_Emu(), None, MapMemory()) == "stall"
 
 
 def test_run_pokedex_return_stops_if_flora_never_crosses(monkeypatch):
     _wire_return(monkeypatch, hop="arrived", flora=False,
-                 descent="arrived", cutscene="story_done")
+                 descent="arrived", cutscene=True)
     assert run_pokedex_return(_Emu(), None, MapMemory()) == "flora_no_cross"
 
 
 def test_run_pokedex_return_propagates_the_descent_outcome(monkeypatch):
     _wire_return(monkeypatch, hop="arrived", flora=True,
-                 descent="stall", cutscene="story_done")
+                 descent="stall", cutscene=True)
     assert run_pokedex_return(_Emu(), None, MapMemory()) == "stall"
 
 
 def test_run_pokedex_return_stops_if_the_pokedex_is_not_delivered(monkeypatch):
     _wire_return(monkeypatch, hop="arrived", flora=True,
-                 descent="arrived", cutscene="story_timeout")
+                 descent="arrived", cutscene=False)
     assert run_pokedex_return(_Emu(), None, MapMemory()) == "pokedex_not_delivered"
+
+
+# ---------------------------------------------------------------------------
+# Shoes driver: _finish_lab_cutscene
+# ---------------------------------------------------------------------------
+
+
+class _RecordingEmu:
+    """Records every step; scripted readers key off the A-press count."""
+
+    def __init__(self):
+        self.steps = []
+
+    @property
+    def a_presses(self):
+        return sum(1 for key, _ in self.steps if key == buttons.KEY_A)
+
+    def step(self, keys, frames):
+        self.steps.append((keys, frames))
+
+
+class _CutsceneReader:
+    """has_pokedex is True from press 0 (the flag flips ~55 presses early on real
+    hardware); balls and lab_state==5 only land after presses_to_done A-presses."""
+
+    def __init__(self, emu, presses_to_done):
+        self._emu = emu
+        self._presses_to_done = presses_to_done
+
+    def has_pokedex(self):
+        return True
+
+    def has_poke_balls(self, min_qty):
+        return self._emu.a_presses >= self._presses_to_done
+
+    def birch_lab_state(self):
+        return 5 if self._emu.a_presses >= self._presses_to_done else 4
+
+
+def test_finish_lab_cutscene_does_not_stop_at_the_pokedex_flag():
+    # Anti-false-lock pin: stopping at has_pokedex() alone is the exact bug that
+    # produced the mid-cutscene dump; the A-spam must run until balls + lab_state==5.
+    emu = _RecordingEmu()
+    assert _finish_lab_cutscene(emu, _CutsceneReader(emu, presses_to_done=7)) is True
+    assert emu.a_presses == 7
+
+
+def test_finish_lab_cutscene_releases_with_b_after_completion():
+    emu = _RecordingEmu()
+    assert _finish_lab_cutscene(emu, _CutsceneReader(emu, presses_to_done=3)) is True
+    b_count = sum(1 for key, _ in emu.steps if key == buttons.KEY_B)
+    assert b_count == 10
+    last_a = max(i for i, (key, _) in enumerate(emu.steps) if key == buttons.KEY_A)
+    first_b = min(i for i, (key, _) in enumerate(emu.steps) if key == buttons.KEY_B)
+    assert first_b > last_a  # release strictly follows the drain
+
+
+def test_finish_lab_cutscene_times_out_without_b_release():
+    emu = _RecordingEmu()
+    reader = _CutsceneReader(emu, presses_to_done=10_000)  # never completes
+    assert _finish_lab_cutscene(emu, reader) is False
+    assert not any(key == buttons.KEY_B for key, _ in emu.steps)
