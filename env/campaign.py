@@ -17,14 +17,8 @@ from typing import Any
 
 from emulator import buttons
 from env.map_traveler import cross_scripted_npc, hop_via_explore, reach_map
+from env.maps import LAB, LITTLEROOT, OLDALE, ROUTE_101, ROUTE_103
 from env.orders import Order, _advance_story_dialogue, execute_order, reached
-
-# Map-group ids on the southbound return path.
-ROUTE_101 = (0, 16)
-LITTLEROOT = (0, 9)
-LAB = (1, 4)
-ROUTE_103 = (0, 18)
-OLDALE = (0, 10)
 
 # Return chain for reach_map: cross route_101 south (down) into Littleroot, then the
 # lab door warp (up). Oldale/route_103 are dropped — the north-entry Oldale hop is not

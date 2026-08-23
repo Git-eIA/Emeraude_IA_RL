@@ -35,9 +35,10 @@ have moved since.
       Name them (`_TOWN_STATE_SHOES_DONE = 4`, `_LAB_STATE_CUTSCENE_DONE = 5`)
       and add a unit test for the None case (var read during relocation).
 
-- [ ] **I7 — Map constants duplicated** (`env/campaign.py` vs `agent/milestones.py`)
+- [x] **I7 — Map constants duplicated** (`env/campaign.py` vs `env/milestones.py`)
       LITTLEROOT / ROUTE_101 / OLDALE / ROUTE_103 / LAB tuples live in two
-      modules. Single source (e.g. `env/maps.py`) imported by both.
+      modules. Fixed: single source `env/maps.py` imported by both (the original
+      finding said `agent/milestones.py`; the real duplicate was `env/milestones.py`).
 
 - [ ] **I8 — `control_returns` bare literals** (`tests/conftest.py`)
       Press/settle frame counts and cycle bound are inline literals; name them so

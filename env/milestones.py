@@ -10,10 +10,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from env.game_state import PlayerState
+from env.maps import LITTLEROOT, OLDALE, ROUTE_101, ROUTE_103
 
-# Map IDs from pret/pokeemerald data/maps/map_groups.json
-LITTLEROOT = (0, 9)
-ROUTE_101 = (0, 16)
 # Brendan's and May's house ground floors; the player spawns in one of them.
 PLAYER_HOUSES_1F = frozenset({(1, 0), (1, 2)})
 
@@ -26,10 +24,6 @@ MAYS_HOUSE_2F = (1, 3)
 # Littleroot's exit to Route 101 is at the top edge; this milestone pays for
 # committing northward through the boundary.
 NORTH_LITTLEROOT_MAX_Y = 1
-
-# North-push destinations: pret ordinal; pin live on first north transition.
-OLDALE = (0, 10)  # pret ordinal; pin live on first north transition
-ROUTE_103 = (0, 18)  # corroborated by orders.py DESTINATIONS; pin live
 
 
 @dataclass(frozen=True)
