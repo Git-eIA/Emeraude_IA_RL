@@ -27,9 +27,13 @@ have moved since.
       between WorldReader and EmeraldReader would silently pick the wrong source.
       Assert disjoint attribute sets, or promote a real composite reader class.
 
-- [ ] **I5 — `_verify_control` wastes cycles on None reads** (`env/campaign.py`)
+- [x] **I5 — `_verify_control` wastes cycles on None reads** (`env/campaign.py`)
       Each None `player_state()` still consumes a control-check cycle. Same
       pattern as I2: retry the read instead of burning the bounded budget.
+      Fixed: `_read_player_state` helper retries a None read up to
+      `_STATE_READ_RETRIES` times (`_STATE_READ_RETRY_FRAMES` idle frames
+      between attempts); `_verify_control` uses it for both reads. Pins:
+      transient None costs zero cycles, persistent None stays bounded at 30.
 
 - [x] **I6 — Magic numbers `town_state == 4` / `lab_state == 5`** (`env/campaign.py`)
       Name them (`_TOWN_STATE_SHOES_DONE = 4`, `_LAB_STATE_CUTSCENE_DONE = 5`)

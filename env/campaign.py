@@ -58,6 +58,8 @@ _SHOES_MAX_CYCLES = 80      # measured: ~14 cycles to shoes + town_state 4
 _SHOES_A_PER_CYCLE = 4
 _CONTROL_MAX_CYCLES = 30    # measured: 1 cycle for control to return
 _CONTROL_B_PRESSES = 2      # drain a box the drain's last A re-opened (probe P6)
+_STATE_READ_RETRIES = 3     # transient None reads (save-block relocation window)
+_STATE_READ_RETRY_FRAMES = 4
 
 
 @dataclass(frozen=True)
@@ -221,15 +223,26 @@ def _drain_mom_event(emulator: Any, reader: Any) -> bool:
     return _done()
 
 
+def _read_player_state(emulator: Any, reader: Any) -> Any:
+    """Retry a None player_state read (save-block relocation window) a few
+    frames later instead of letting callers burn their bounded budgets."""
+    for _ in range(_STATE_READ_RETRIES):
+        state = reader.player_state()
+        if state is not None:
+            return state
+        emulator.step(0, _STATE_READ_RETRY_FRAMES)
+    return reader.player_state()
+
+
 def _verify_control(emulator: Any, reader: Any) -> bool:
     """Prove control returned: a DOWN press changes the position or map (bounded).
 
     A still-open dialogue box swallows direction input, so each failed press is
     followed by B presses to drain it before retrying (probe P6 pattern)."""
     for _ in range(_CONTROL_MAX_CYCLES):
-        before = reader.player_state()
+        before = _read_player_state(emulator, reader)
         _press(emulator, buttons.KEY_DOWN, _MOVE_PRESS_FRAMES, _MOVE_REST_FRAMES)
-        after = reader.player_state()
+        after = _read_player_state(emulator, reader)
         if (
             before is not None and after is not None
             and ((before.x, before.y) != (after.x, after.y)
