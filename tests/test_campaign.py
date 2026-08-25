@@ -559,6 +559,40 @@ def test_verify_control_times_out_when_nothing_ever_moves():
     assert emu.down_presses == 30  # bounded at _CONTROL_MAX_CYCLES
 
 
+class _FlakyControlReader(_ControlReader):
+    """First none_reads player_state calls hit the relocation window (None)."""
+
+    def __init__(self, emu, b_needed, none_reads):
+        super().__init__(emu, b_needed)
+        self._none_reads = none_reads
+        self.reads = 0
+
+    def player_state(self):
+        self.reads += 1
+        if self.reads <= self._none_reads:
+            return None
+        return super().player_state()
+
+
+def test_verify_control_retries_a_none_read_without_burning_a_cycle():
+    # I5 pin: a transient None read (save-block relocation) must be retried a few
+    # frames later, not treated as a failed cycle — one DOWN, zero B drains.
+    emu = _WalkEmu()
+    assert _verify_control(emu, _FlakyControlReader(emu, b_needed=0, none_reads=1)) is True
+    assert emu.down_presses == 1
+    assert emu.b_presses == 0
+
+
+def test_verify_control_stays_bounded_on_persistent_none_reads():
+    class _AlwaysNone:
+        def player_state(self):
+            return None
+
+    emu = _WalkEmu()
+    assert _verify_control(emu, _AlwaysNone()) is False
+    assert emu.down_presses == 30  # retries never extend the cycle budget
+
+
 # ---------------------------------------------------------------------------
 # Shoes driver: run_shoes_leg orchestration
 # ---------------------------------------------------------------------------
