@@ -31,9 +31,12 @@ have moved since.
       Each None `player_state()` still consumes a control-check cycle. Same
       pattern as I2: retry the read instead of burning the bounded budget.
 
-- [ ] **I6 — Magic numbers `town_state == 4` / `lab_state == 5`** (`env/campaign.py`)
+- [x] **I6 — Magic numbers `town_state == 4` / `lab_state == 5`** (`env/campaign.py`)
       Name them (`_TOWN_STATE_SHOES_DONE = 4`, `_LAB_STATE_CUTSCENE_DONE = 5`)
       and add a unit test for the None case (var read during relocation).
+      Fixed: constants added in `env/campaign.py`; both predicates use them.
+      None-case pins: `_finish_lab_cutscene` keeps spamming on a None lab_state,
+      `_drain_mom_event` times out (no crash) on a None player_state.
 
 - [x] **I7 — Map constants duplicated** (`env/campaign.py` vs `env/milestones.py`)
       LITTLEROOT / ROUTE_101 / OLDALE / ROUTE_103 / LAB tuples live in two
