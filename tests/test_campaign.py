@@ -409,6 +409,21 @@ def test_finish_lab_cutscene_times_out_without_b_release():
     assert not any(key == buttons.KEY_B for key, _ in emu.steps)
 
 
+class _NoneLabStateReader(_CutsceneReader):
+    """birch_lab_state reads None (save-block relocation) until presses_to_done."""
+
+    def birch_lab_state(self):
+        return 5 if self._emu.a_presses >= self._presses_to_done else None
+
+
+def test_finish_lab_cutscene_treats_none_lab_state_as_not_done():
+    # I6 pin: a None var read during relocation must not crash and must not
+    # count as done — the A-spam keeps going until a real 5 lands.
+    emu = _RecordingEmu()
+    assert _finish_lab_cutscene(emu, _NoneLabStateReader(emu, presses_to_done=6)) is True
+    assert emu.a_presses == 6
+
+
 # ---------------------------------------------------------------------------
 # Shoes driver: leg helpers
 # ---------------------------------------------------------------------------
@@ -486,6 +501,24 @@ def test_drain_mom_event_detects_completion_on_the_last_cycle():
     reader = _DrainReader(emu, shoes_after=320, town4_after=320)
     assert _drain_mom_event(emu, reader) is True
     assert emu.a_presses == 320  # no 81st cycle was needed
+
+
+class _NonePlayerStateReader:
+    """Shoes flag is up but player_state reads None (save-block relocation)."""
+
+    def has_running_shoes(self):
+        return True
+
+    def player_state(self):
+        return None
+
+
+def test_drain_mom_event_treats_none_player_state_as_not_done():
+    # I6 pin: a None player_state must not crash the drain and must not count
+    # as done even with the shoes flag already up — bounded timeout instead.
+    emu = _WalkEmu()
+    assert _drain_mom_event(emu, _NonePlayerStateReader()) is False
+    assert emu.a_presses == 80 * 4  # ran the full bounded loop, no crash
 
 
 class _ControlReader:

@@ -43,6 +43,12 @@ _FLORA_MAX_PRESSES = 60
 _RELEASE_B_PRESSES = 10  # 5+ works, 3 insufficient (probe-measured)
 _BUTTON_FRAMES = 8       # A/B press and release frames (probe-proven cadence)
 
+# Story-var completion values (TODOS.md I6). Both vars read None during save-block
+# relocation windows; every predicate below compares with == so a None read is
+# simply "not done yet", never a crash or a false positive.
+_LAB_STATE_CUTSCENE_DONE = 5   # VAR_BIRCH_LAB_STATE after the full GivePokedex script
+_TOWN_STATE_SHOES_DONE = 4     # VAR_LITTLEROOT_TOWN_STATE after the mom/shoes event
+
 # run_shoes_leg bounds (probe-measured 2026-08-21, margin >= x2). Direction presses
 # use the 12/4 cadence the probes and precision walks share.
 _MOVE_PRESS_FRAMES = 12
@@ -168,7 +174,9 @@ def _finish_lab_cutscene(emulator: Any, reader: Any) -> bool:
     After that, B presses close the Birch boxes the extra A-spam re-opened."""
     done = _advance_story_dialogue(
         emulator, reader,
-        lambda r: r.has_pokedex() and r.has_poke_balls(5) and r.birch_lab_state() == 5,
+        lambda r: r.has_pokedex()
+        and r.has_poke_balls(5)
+        and r.birch_lab_state() == _LAB_STATE_CUTSCENE_DONE,
     )
     if done != "story_done":
         return False
@@ -195,7 +203,11 @@ def _drain_mom_event(emulator: Any, reader: Any) -> bool:
 
     def _done() -> bool:
         ps = reader.player_state()
-        return reader.has_running_shoes() and ps is not None and ps.town_state == 4
+        return (
+            reader.has_running_shoes()
+            and ps is not None
+            and ps.town_state == _TOWN_STATE_SHOES_DONE
+        )
 
     # Check-first loop with a final re-check: presses are bounded at exactly
     # _SHOES_MAX_CYCLES cycles, and a state completed BY the last cycle's presses
