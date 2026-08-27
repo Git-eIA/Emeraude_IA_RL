@@ -12,10 +12,15 @@ have moved since.
       interruption (battle, scripted event) can leave it steering from stale
       coordinates. Re-snapshot after each interruption before replanning.
 
-- [ ] **I2 — `reach_map` burns budget on None snapshots** (`env/map_traveler.py`)
+- [x] **I2 — `reach_map` burns budget on None snapshots** (`env/map_traveler.py`)
       When `_snapshot_settled` returns None (save-block relocation window), the
       loop consumes a hop attempt without acting. Retry the snapshot a few frames
       later instead of spending budget.
+      Fixed: `_snapshot_after_relocation` helper retries a None `_snapshot_settled`
+      up to `_SNAPSHOT_RETRIES` times (`_SNAPSHOT_RETRY_FRAMES` idle frames between
+      attempts); both hop loops use it — `reach_map` AND `travel_to` (same bug,
+      scope extension). Pins: transient None costs zero hops, persistent None
+      stays bounded at max_hops.
 
 - [ ] **I3 — `_pocket_has` non-atomic SB1/SB2 reads** (`env/game_state.py`)
       Bag pointer (SaveBlock1) and securityKey (SaveBlock2) are read in separate

@@ -27,6 +27,8 @@ from env.route_planner import plan_route
 from emulator import buttons
 
 SETTLE_TRIES = 4   # skip SaveBlock None frames when reading where we landed
+_SNAPSHOT_RETRIES = 3       # transient None snapshots (save-block relocation window)
+_SNAPSHOT_RETRY_FRAMES = 4  # idle frames between retries so the relocation can settle
 BATTLE_OUTCOMES = ("battle_lost", "battle_timeout", "battle_interrupted")
 
 
@@ -46,10 +48,9 @@ def travel_to(
     | 'battle_lost' | 'battle_timeout' | 'battle_interrupted'.
     """
     for _ in range(max_hops):
-        here = _snapshot_settled(reader)
+        here = _snapshot_after_relocation(emulator, reader)
         if here is None:
-            emulator.step(0, 1)   # relocating; idle a beat and retry
-            continue
+            continue   # relocation never settled; the hop budget bounds the loop
         if here.map_id == goal_map:
             return navigate_grid(
                 emulator, reader, goal_cell,
@@ -102,6 +103,17 @@ def _snapshot_settled(reader: Any) -> Any:
         if snap is not None:
             return snap
     return snap
+
+
+def _snapshot_after_relocation(emulator: Any, reader: Any) -> Any:
+    """Retry a None snapshot (save-block relocation window) a few idle frames
+    later instead of letting hop loops burn their bounded budgets."""
+    for _ in range(_SNAPSHOT_RETRIES):
+        snap = _snapshot_settled(reader)
+        if snap is not None:
+            return snap
+        emulator.step(0, _SNAPSHOT_RETRY_FRAMES)
+    return _snapshot_settled(reader)
 
 
 # ---------------------------------------------------------------------------
@@ -441,10 +453,9 @@ def reach_map(
     fired. 'timeout' = hop budget exhausted.
     """
     for _ in range(max_hops):
-        here = _snapshot_settled(reader)
+        here = _snapshot_after_relocation(emulator, reader)
         if here is None:
-            emulator.step(0, 1)   # relocating between maps; idle a beat and retry
-            continue
+            continue   # relocation never settled; the hop budget bounds the loop
         if here.map_id == goal_map:
             return "arrived"
         direction = direction_by_map.get(here.map_id)

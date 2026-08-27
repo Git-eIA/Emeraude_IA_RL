@@ -526,6 +526,46 @@ def test_reach_map_times_out_when_hops_exhaust(monkeypatch):
     assert reach_map(world, world, MapMemory(), (1, 4), {(0, 16): "down"}, max_hops=3) == "timeout"
 
 
+class _RelocatingWorld(_ScriptedDescentWorld):
+    """Snapshot stays None (save-block relocation) until idle frames are stepped."""
+
+    def __init__(self, sequence: list[tuple[int, int]]) -> None:
+        super().__init__(sequence)
+        self.relocating = True
+
+    def step(self, keys: int, frames: int) -> None:
+        self.relocating = False
+
+    def snapshot(self):
+        if self.relocating:
+            return None
+        return super().snapshot()
+
+
+def test_reach_map_transient_none_snapshot_does_not_burn_a_hop(monkeypatch):
+    world = _RelocatingWorld([(0, 16), (1, 4)])
+
+    def fake_cross(emu, rdr, mem, from_map, direction, **kw):
+        world.advance()
+        return "crossed"
+
+    monkeypatch.setattr(map_traveler, "_cross_in_direction", fake_cross)
+    result = reach_map(world, world, MapMemory(), (1, 4), {(0, 16): "down"}, max_hops=2)
+    assert result == "arrived"
+
+
+def test_reach_map_stays_bounded_on_persistent_none_snapshots():
+    world = _ScriptedDescentWorld([(0, 16)])
+    world.snapshot = lambda: None  # relocation never settles
+    assert reach_map(world, world, MapMemory(), (1, 4), {(0, 16): "down"}, max_hops=3) == "timeout"
+
+
+def test_travel_to_transient_none_snapshot_does_not_burn_a_hop(monkeypatch):
+    world = _RelocatingWorld([(1, 4)])
+    monkeypatch.setattr(map_traveler, "navigate_grid", lambda *a, **k: "arrived")
+    assert travel_to(world, world, MapMemory(), (1, 4), (5, 5), max_hops=1) == "arrived"
+
+
 # ---------------------------------------------------------------------------
 # A2: explore-based hop (route_103 -> Oldale) + portal crossing
 # ---------------------------------------------------------------------------
