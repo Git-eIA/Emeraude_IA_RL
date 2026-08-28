@@ -363,3 +363,50 @@ def test_poke_balls_not_visible_via_has_item() -> None:
     has_item scans — the bug this fix corrects. has_item must not see them."""
     reader = _reader_with_poke_balls(real_qty=5, security_key=0x1234ABCD)
     assert reader.has_item(POKE_BALL_ITEM_ID, min_qty=1) is False
+
+
+def test_pocket_has_retries_when_save_blocks_relocate_mid_scan() -> None:
+    """Review I3: SaveBlocks relocate periodically in Emerald; if the pointer moves
+    between the pointer read and the pocket scan, the scan must be retried at the
+    new base instead of trusting bytes read from the stale one."""
+    old_sb1, new_sb1 = 0x02025734, 0x02026000
+    sb2 = 0x02027000
+    security_key = 0x1234ABCD
+    stored_qty = 5 ^ (security_key & 0xFFFF)
+    slot_addr = new_sb1 + _POKEBALLS_POCKET_OFFSET
+    key_addr = sb2 + _SECURITY_KEY_OFFSET
+    sb1_reads = 0
+
+    def read(addr: int, size: int) -> bytes:
+        nonlocal sb1_reads
+        if addr == SAVE_BLOCK1_PTR and size == 4:
+            sb1_reads += 1
+            current = old_sb1 if sb1_reads == 1 else new_sb1
+            return current.to_bytes(4, "little")
+        if addr == SAVE_BLOCK2_PTR and size == 4:
+            return sb2.to_bytes(4, "little")
+        if addr == key_addr and size == 4:
+            return security_key.to_bytes(4, "little")
+        if addr == slot_addr and size == _ITEM_SLOT_SIZE:
+            return POKE_BALL_ITEM_ID.to_bytes(2, "little") + stored_qty.to_bytes(2, "little")
+        return bytes(size)
+
+    assert EmeraldReader(read).has_poke_balls(min_qty=5) is True
+
+
+def test_pocket_has_gives_up_when_save_blocks_never_settle() -> None:
+    """Review I3: a perpetually moving SB1 pointer yields False (bounded retries),
+    never garbage decrypted from mismatched bases and never an unbounded loop."""
+    sb2 = 0x02027000
+    sb1_reads = 0
+
+    def read(addr: int, size: int) -> bytes:
+        nonlocal sb1_reads
+        if addr == SAVE_BLOCK1_PTR and size == 4:
+            sb1_reads += 1
+            return (0x02025000 + sb1_reads * 0x100).to_bytes(4, "little")
+        if addr == SAVE_BLOCK2_PTR and size == 4:
+            return sb2.to_bytes(4, "little")
+        return bytes(size)
+
+    assert EmeraldReader(read).has_poke_balls(min_qty=1) is False

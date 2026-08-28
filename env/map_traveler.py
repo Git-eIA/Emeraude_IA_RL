@@ -146,14 +146,21 @@ def _precision_step(emulator: Any, key: int) -> None:
 
 
 def _precision_walk_to(
-    emulator: Any, reader: Any, snap: Any, target: tuple[int, int], from_map: tuple[int, int]
+    emulator: Any, reader: Any, snap: Any, target: tuple[int, int], from_map: tuple[int, int],
+    move_type_fn: Any = None, predict: Any = None,
 ) -> bool:
     """Re-plan each step and take 4-frame precision steps toward target on from_map.
 
     navigate_grid's 24-frame steps overshoot on Littleroot's dense topology; precision
     steps land exactly. Returns True on arrival, False if it leaves the map or stalls.
+    Each iteration consumes a possible battle FIRST (review I1): a battle outcome
+    aborts the walk, and a won battle is followed by a fresh snapshot — the walk
+    never steers from pre-battle coordinates.
     """
     for _ in range(_PRECISION_MAX_STEPS):
+        battle = handle_battle_interruption(emulator, reader, move_type_fn, predict)
+        if battle is not None:
+            return False
         here = snapshot_settled(reader)
         if here is None or here.map_id != from_map:
             return False
@@ -296,7 +303,10 @@ def _cross_up_warp(
         cur = _snapshot_settled(reader)
         if cur is None or cur.map_id != from_map:
             return "no_crossing"
-        _precision_walk_to(emulator, reader, snap, cell, from_map)
+        _precision_walk_to(
+            emulator, reader, snap, cell, from_map,
+            move_type_fn=move_type_fn, predict=predict,
+        )
         landed = _snapshot_settled(reader)
         if landed is not None and landed.map_id != from_map:
             memory.record_portal(from_map, cell, "up", landed.map_id, True, landed.pos)
@@ -396,9 +406,14 @@ def cross_scripted_npc(
     face_dir: str,
     cross_dir: str,
     max_presses: int,
-) -> bool:
+) -> str:
     """Cross an NPC-gated connection: walk to stand_tile, face the NPC, A-spam its
-    dialogue, then push cross_dir until the map changes. Returns True iff the map flipped.
+    dialogue, then push cross_dir until the map changes.
+
+    Returns "crossed" iff the map flipped; otherwise a status naming the failing
+    sub-step (review I10): "off_map" (not settled on from_map), "no_grid" (grid
+    snapshot unavailable), "walk_failed" (could not reach stand_tile), or
+    "push_timeout" (dialogue played but the crossing never opened).
 
     Flora stands on Oldale's south connection tile; the crossing only opens once her
     dialogue has played. face_dir (toward the NPC) and cross_dir (toward the next map)
@@ -406,12 +421,12 @@ def cross_scripted_npc(
     """
     here = _snapshot_settled(reader)
     if here is None or here.map_id != from_map:
-        return False
+        return "off_map"
     snap = GridSnapshot.from_reader(reader.grid_reader, from_map)
     if snap is None:
-        return False
+        return "no_grid"
     if not _precision_walk_to(emulator, reader, snap, stand_tile, from_map):
-        return False
+        return "walk_failed"
     # Tap toward the NPC: the NPC tile walls the player, so this only rotates the sprite.
     emulator.step(DIRECTION_KEYS[face_dir], _FACE_FRAMES)
     emulator.step(0, _PRECISION_RELEASE_FRAMES)
@@ -423,16 +438,16 @@ def cross_scripted_npc(
     for _ in range(_CROSS_PUSH_MAX):
         before = _snapshot_settled(reader)
         if before is None:
-            return False
+            return "off_map"
         if before.map_id != from_map:
             memory.record_portal(from_map, stand_tile, cross_dir, before.map_id, True, before.pos)
-            return True
+            return "crossed"
         probe_step(emulator, reader, before, cross_dir)
     after = _snapshot_settled(reader)
     if after is not None and after.map_id != from_map:
         memory.record_portal(from_map, stand_tile, cross_dir, after.map_id, True, after.pos)
-        return True
-    return False
+        return "crossed"
+    return "push_timeout"
 
 
 def reach_map(

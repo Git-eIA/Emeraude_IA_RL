@@ -84,20 +84,30 @@ class FakeEmulator:
         return rng.integers(0, 255, size=(160, 240, 3), dtype=np.uint8)
 
 
+# control_returns tuning (anti-false-lock pin): named so the probe stays
+# legible and tunable — cycle bound, DOWN press/settle frames, B-drain counts.
+CONTROL_CHECK_CYCLES = 5
+CONTROL_MOVE_PRESS_FRAMES = 12
+CONTROL_MOVE_SETTLE_FRAMES = 4
+CONTROL_DRAIN_B_PRESSES = 2
+CONTROL_DRAIN_B_FRAMES = 8
+
+
 def control_returns(emu) -> bool:
     """True when a direction press moves the player within a few tries (ROM smokes).
 
     Anti-false-lock pin shared by the pokedex and shoes smokes: presses DOWN
-    (12/4 frames); if the player did not move, drains a possibly open dialogue
-    box with B x2 before retrying (the mom-event probe's P6 pattern)."""
+    (CONTROL_MOVE_PRESS_FRAMES/CONTROL_MOVE_SETTLE_FRAMES); if the player did
+    not move, drains a possibly open dialogue box with B presses before
+    retrying (the mom-event probe's P6 pattern)."""
     from emulator import buttons
     from env.game_state import EmeraldReader
 
     reader = EmeraldReader(emu.read_bytes)
-    for _ in range(5):
+    for _ in range(CONTROL_CHECK_CYCLES):
         before = reader.player_state()
-        emu.step(buttons.KEY_DOWN, 12)
-        emu.step(0, 4)
+        emu.step(buttons.KEY_DOWN, CONTROL_MOVE_PRESS_FRAMES)
+        emu.step(0, CONTROL_MOVE_SETTLE_FRAMES)
         after = reader.player_state()
         if (
             before is not None and after is not None
@@ -105,7 +115,7 @@ def control_returns(emu) -> bool:
                  or (before.map_group, before.map_num) != (after.map_group, after.map_num))
         ):
             return True
-        for _ in range(2):
-            emu.step(buttons.KEY_B, 8)
-            emu.step(0, 8)
+        for _ in range(CONTROL_DRAIN_B_PRESSES):
+            emu.step(buttons.KEY_B, CONTROL_DRAIN_B_FRAMES)
+            emu.step(0, CONTROL_DRAIN_B_FRAMES)
     return False
