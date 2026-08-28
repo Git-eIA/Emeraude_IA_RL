@@ -5,7 +5,7 @@ import dataclasses
 
 from emulator import buttons
 from env.map_memory import MapMemory, WorldEvent
-from env.orders import DESTINATIONS, Order, execute_order
+from env.orders import DESTINATIONS, Order, _advance_story_dialogue, execute_order
 from env.world_reader import WorldSnapshot
 
 
@@ -921,3 +921,22 @@ def test_story_without_target_returns_story_target_required() -> None:
     order = Order(destination="lab", mode="story", combat="win")
     result = execute_order(order, world, world, MapMemory())
     assert result == "story_target_required"
+
+
+def test_story_early_exit_skips_release_once_target_holds() -> None:
+    # I11: the predicate is re-checked right after the A press; once it holds,
+    # the release/settle step must not run (halves worst-case cutscene time).
+    class _ReleaseCountingWorld(StoryWorld):
+        def __init__(self) -> None:
+            super().__init__((1, 4), (6, 12), a_presses_to_done=1)
+            self.release_steps = 0
+
+        def step(self, keys: int, frames: int) -> None:
+            super().step(keys, frames)
+            if keys == 0:
+                self.release_steps += 1
+
+    world = _ReleaseCountingWorld()
+    result = _advance_story_dialogue(world, world, lambda r: r.event_done())
+    assert result == "story_done"
+    assert world.release_steps == 0

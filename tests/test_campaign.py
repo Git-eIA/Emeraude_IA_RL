@@ -312,7 +312,7 @@ def _wire_return(monkeypatch, *, hop, flora, descent, cutscene):
 
 
 def test_run_pokedex_return_delivers_on_the_happy_path(monkeypatch):
-    calls = _wire_return(monkeypatch, hop="arrived", flora=True,
+    calls = _wire_return(monkeypatch, hop="arrived", flora="crossed",
                          descent="arrived", cutscene=True)
     assert run_pokedex_return(_Emu(), None, MapMemory()) == "pokedex_delivered"
     assert calls == [
@@ -323,25 +323,26 @@ def test_run_pokedex_return_delivers_on_the_happy_path(monkeypatch):
 
 def test_run_pokedex_return_propagates_the_oldale_hop_outcome(monkeypatch):
     # hop_via_explore's own status (stall/no_portal/battle_lost/...) surfaces verbatim.
-    _wire_return(monkeypatch, hop="stall", flora=True,
+    _wire_return(monkeypatch, hop="stall", flora="crossed",
                  descent="arrived", cutscene=True)
     assert run_pokedex_return(_Emu(), None, MapMemory()) == "stall"
 
 
-def test_run_pokedex_return_stops_if_flora_never_crosses(monkeypatch):
-    _wire_return(monkeypatch, hop="arrived", flora=False,
+def test_run_pokedex_return_surfaces_the_flora_sub_step(monkeypatch):
+    # Review I10: the Flora leg surfaces which sub-step failed, not an opaque status.
+    _wire_return(monkeypatch, hop="arrived", flora="walk_failed",
                  descent="arrived", cutscene=True)
-    assert run_pokedex_return(_Emu(), None, MapMemory()) == "flora_no_cross"
+    assert run_pokedex_return(_Emu(), None, MapMemory()) == "flora_walk_failed"
 
 
 def test_run_pokedex_return_propagates_the_descent_outcome(monkeypatch):
-    _wire_return(monkeypatch, hop="arrived", flora=True,
+    _wire_return(monkeypatch, hop="arrived", flora="crossed",
                  descent="stall", cutscene=True)
     assert run_pokedex_return(_Emu(), None, MapMemory()) == "stall"
 
 
 def test_run_pokedex_return_stops_if_the_pokedex_is_not_delivered(monkeypatch):
-    _wire_return(monkeypatch, hop="arrived", flora=True,
+    _wire_return(monkeypatch, hop="arrived", flora="crossed",
                  descent="arrived", cutscene=False)
     assert run_pokedex_return(_Emu(), None, MapMemory()) == "pokedex_not_delivered"
 

@@ -347,6 +347,8 @@ def _advance_story_dialogue(emulator: Any, reader: Any, story_target: Any) -> st
         return "story_done"
     for _ in range(STORY_MAX_PRESSES):
         emulator.step(buttons.KEY_A, STORY_PRESS_A_FRAMES)
+        if story_target(reader):
+            return "story_done"  # early exit: skip the release once the target holds
         emulator.step(0, STORY_RELEASE_FRAMES)   # release between presses (GBA debounce)
         if story_target(reader):
             return "story_done"

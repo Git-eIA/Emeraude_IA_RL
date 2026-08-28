@@ -139,3 +139,18 @@ def test_world_reader_battle_starting_delegates() -> None:
         return bytes(size)
 
     assert WorldReader(read).battle_starting() is True
+
+
+def test_world_and_emerald_reader_public_apis_only_overlap_on_passthroughs() -> None:
+    """Review I4: the ROM smokes' _Reader adapters resolve WorldReader BEFORE
+    EmeraldReader, so any shared public name is silently shadowed by the world
+    side. Today the only shared names are party_hp/party_levels, which
+    WorldReader implements as pure passthroughs to its internal EmeraldReader —
+    equivalent either way. Pin that set: a NEW overlapping name must be resolved
+    consciously (rename it or extend this allowlist with a passthrough proof),
+    never absorbed silently by the adapters' resolution order."""
+    from env.game_state import EmeraldReader
+
+    world_api = {name for name in dir(WorldReader) if not name.startswith("_")}
+    reader_api = {name for name in dir(EmeraldReader) if not name.startswith("_")}
+    assert world_api & reader_api == {"party_hp", "party_levels"}

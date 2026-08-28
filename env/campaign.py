@@ -311,7 +311,8 @@ def run_pokedex_return(
     Returns 'pokedex_delivered' on success, or on failure the first failing leg's status:
     hop_via_explore / reach_map outcomes ('stall' | 'no_portal' | 'timeout' | 'battle_lost'
     | 'battle_timeout' | 'battle_interrupted' | 'unreachable') propagate verbatim; the Flora
-    and cutscene legs surface 'flora_no_cross' | 'pokedex_not_delivered'.
+    leg surfaces 'flora_<sub-step>' ('flora_off_map' | 'flora_no_grid' | 'flora_walk_failed'
+    | 'flora_push_timeout' — review I10) and the cutscene leg 'pokedex_not_delivered'.
     """
     hopped = hop_via_explore(
         emulator, reader, memory, ROUTE_103, OLDALE, "down",
@@ -321,12 +322,13 @@ def run_pokedex_return(
         return hopped
 
     emulator.step(0, _SETTLE_FRAMES)
-    if not cross_scripted_npc(
+    crossed = cross_scripted_npc(
         emulator, reader, memory, OLDALE,
         stand_tile=_FLORA_STAND, face_dir=_FLORA_FACE,
         cross_dir=_FLORA_CROSS, max_presses=_FLORA_MAX_PRESSES,
-    ):
-        return "flora_no_cross"
+    )
+    if crossed != "crossed":
+        return "flora_" + crossed
 
     descended = reach_map(
         emulator, reader, memory, LAB, _RETURN_DIRECTIONS,

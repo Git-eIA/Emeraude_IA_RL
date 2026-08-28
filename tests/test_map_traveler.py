@@ -6,7 +6,14 @@ from env import map_traveler
 from env.grid_navigator import DIRECTIONS
 from env.map_grid_reader import TileKind
 from env.map_memory import MapMemory, WorldEvent
-from env.map_traveler import _cross_border, _cross_in_direction, _cross_up_warp, reach_map, travel_to
+from env.map_traveler import (
+    _cross_border,
+    _cross_in_direction,
+    _cross_up_warp,
+    _precision_walk_to,
+    reach_map,
+    travel_to,
+)
 from env.world_reader import WorldSnapshot
 
 _KEY_TO_DIR: dict[int, str] = {
@@ -416,7 +423,7 @@ def test_cross_up_warp_walks_onto_a_warp_tile_and_records(monkeypatch):
     monkeypatch.setattr(map_traveler, "GridSnapshot",
                         type("_GS", (), {"from_reader": staticmethod(lambda *a: object())}))
 
-    def fake_walk(emu, rdr, snap, cell, from_map):
+    def fake_walk(emu, rdr, snap, cell, from_map, move_type_fn=None, predict=None):
         world.pos = cell
         world.map_id = (1, 4)  # walking onto the warp tile triggers the transition
         return True
@@ -445,7 +452,7 @@ def test_cross_up_warp_selects_a_wall_above_doorstep_not_an_mb_warp_tile(monkeyp
     monkeypatch.setattr(map_traveler.GridSnapshot, "from_reader",
                         staticmethod(lambda *a: _FakeSnap({(7, 18), (7, 17)})))
 
-    def fake_walk(emu, rdr, snap, cell, from_map):
+    def fake_walk(emu, rdr, snap, cell, from_map, move_type_fn=None, predict=None):
         world.pos = cell
         world.map_id = (1, 4)   # walking onto the doorstep triggers the warp
         return True
@@ -453,6 +460,108 @@ def test_cross_up_warp_selects_a_wall_above_doorstep_not_an_mb_warp_tile(monkeyp
     monkeypatch.setattr(map_traveler, "_precision_walk_to", fake_walk)
     assert _cross_up_warp(world, world, memory, (0, 9), None, None) == "crossed"
     assert memory.portal((0, 9), (1, 4)) is not None
+
+
+class _WalkWorld(_OneMapWorld):
+    """_OneMapWorld whose step actually moves the player one tile per press."""
+
+    def step(self, keys: int, frames: int) -> None:
+        direction = _KEY_TO_DIR.get(keys)
+        if direction is None:
+            return
+        dx, dy = _DELTAS[direction]
+        self.pos = (self.pos[0] + dx, self.pos[1] + dy)
+
+
+def test_precision_walk_returns_false_on_a_battle_outcome(monkeypatch):
+    """A battle during the walk must abort it (review I1): steering from stale
+    coordinates after an interruption is the bug; the walk forwards the Fighter
+    fns to handle_battle_interruption and bails on any battle outcome."""
+    world = _OneMapWorld(map_id=(0, 9), pos=(7, 18))
+    calls = []
+
+    def fake_battle(emu, rdr, move_type_fn, predict):
+        calls.append((move_type_fn, predict))
+        return "battle_lost"
+
+    monkeypatch.setattr(map_traveler, "handle_battle_interruption", fake_battle)
+    move_type_fn = lambda mid: 12   # noqa: E731 — identity-checked below
+    predict = lambda obs: 0         # noqa: E731
+    result = _precision_walk_to(
+        world, world, _FakeSnap({(7, 18), (7, 17)}), (7, 17), (0, 9),
+        move_type_fn=move_type_fn, predict=predict,
+    )
+    assert result is False
+    assert calls == [(move_type_fn, predict)]
+
+
+def test_precision_walk_checks_battle_before_each_snapshot(monkeypatch):
+    """Re-snapshot pin (review I1): every iteration consumes a possible battle
+    FIRST, then snapshots — so a post-battle iteration replans from fresh
+    coordinates, never the pre-battle ones."""
+    world = _WalkWorld(map_id=(0, 9), pos=(7, 18))
+    log = []
+    monkeypatch.setattr(map_traveler, "handle_battle_interruption",
+                        lambda *a, **k: log.append("battle") or None)
+
+    def logging_snap(reader):
+        log.append("snap")
+        return reader.snapshot()
+
+    monkeypatch.setattr(map_traveler, "snapshot_settled", logging_snap)
+    monkeypatch.setattr(map_traveler, "plan_path_grid", lambda snap, a, b: ["up"])
+    result = _precision_walk_to(
+        world, world, _FakeSnap({(7, 18), (7, 17)}), (7, 17), (0, 9)
+    )
+    assert result is True
+    assert log == ["battle", "snap", "battle", "snap"]
+
+
+def test_precision_walk_returns_false_when_snapshot_never_settles(monkeypatch):
+    """Review I9: a snapshot that never settles (transition/fade) aborts the walk."""
+    world = _OneMapWorld(map_id=(0, 9), pos=(7, 18))
+    monkeypatch.setattr(map_traveler, "handle_battle_interruption", lambda *a, **k: None)
+    monkeypatch.setattr(map_traveler, "snapshot_settled", lambda reader: None)
+    result = _precision_walk_to(
+        world, world, _FakeSnap({(7, 18), (7, 17)}), (7, 17), (0, 9)
+    )
+    assert result is False
+
+
+def test_precision_walk_returns_false_when_the_player_leaves_the_map(monkeypatch):
+    """Review I9: crossing off from_map mid-walk aborts — the plan's grid no
+    longer describes the ground under the player."""
+    world = _OneMapWorld(map_id=(0, 16), pos=(7, 18))   # already on another map
+    monkeypatch.setattr(map_traveler, "handle_battle_interruption", lambda *a, **k: None)
+    monkeypatch.setattr(map_traveler, "snapshot_settled", lambda reader: reader.snapshot())
+    result = _precision_walk_to(
+        world, world, _FakeSnap({(7, 18), (7, 17)}), (7, 17), (0, 9)
+    )
+    assert result is False
+
+
+def test_precision_walk_returns_false_on_an_unreachable_target(monkeypatch):
+    """Review I9: no grid path to the target -> give up instead of stepping blind."""
+    world = _OneMapWorld(map_id=(0, 9), pos=(7, 18))
+    monkeypatch.setattr(map_traveler, "handle_battle_interruption", lambda *a, **k: None)
+    monkeypatch.setattr(map_traveler, "snapshot_settled", lambda reader: reader.snapshot())
+    result = _precision_walk_to(
+        world, world, _FakeSnap({(7, 18)}), (7, 17), (0, 9)   # target is WALL
+    )
+    assert result is False
+
+
+def test_precision_walk_returns_false_when_the_step_budget_runs_out(monkeypatch):
+    """Review I9: a player that never advances (blocked press) exhausts
+    _PRECISION_MAX_STEPS and returns False — bounded loop, honest stall."""
+    world = _OneMapWorld(map_id=(0, 9), pos=(7, 18))   # static step(): never moves
+    monkeypatch.setattr(map_traveler, "handle_battle_interruption", lambda *a, **k: None)
+    monkeypatch.setattr(map_traveler, "snapshot_settled", lambda reader: reader.snapshot())
+    monkeypatch.setattr(map_traveler, "plan_path_grid", lambda snap, a, b: ["up"])
+    result = _precision_walk_to(
+        world, world, _FakeSnap({(7, 18), (7, 17)}), (7, 17), (0, 9)
+    )
+    assert result is False
 
 
 # ---------------------------------------------------------------------------
@@ -702,7 +811,7 @@ def test_cross_scripted_npc_crosses_after_dialogue(monkeypatch):
     monkeypatch.setattr(map_traveler.GridSnapshot, "from_reader",
                         staticmethod(lambda *a: _FakeSnap({(10, 19)})))
 
-    def fake_walk(emu, rdr, snap, cell, from_map):
+    def fake_walk(emu, rdr, snap, cell, from_map, move_type_fn=None, predict=None):
         world.pos = cell
         return True
 
@@ -716,11 +825,12 @@ def test_cross_scripted_npc_crosses_after_dialogue(monkeypatch):
     assert map_traveler.cross_scripted_npc(
         world, world, memory, (0, 10),
         stand_tile=(10, 19), face_dir="right", cross_dir="down", max_presses=10,
-    ) is True
+    ) == "crossed"
     assert memory.portal((0, 10), (0, 16)) is not None
 
 
-def test_cross_scripted_npc_false_if_it_cannot_reach_the_stand_tile(monkeypatch):
+def test_cross_scripted_npc_reports_walk_failed_if_it_cannot_reach_the_stand_tile(monkeypatch):
+    # Review I10: the status names the failing sub-step instead of an opaque False.
     world = _OneMapWorld(map_id=(0, 10), pos=(10, 15))
     monkeypatch.setattr(map_traveler.GridSnapshot, "from_reader",
                         staticmethod(lambda *a: _FakeSnap({(10, 19)})))
@@ -728,10 +838,10 @@ def test_cross_scripted_npc_false_if_it_cannot_reach_the_stand_tile(monkeypatch)
     assert map_traveler.cross_scripted_npc(
         world, world, MapMemory(), (0, 10),
         stand_tile=(10, 19), face_dir="right", cross_dir="down", max_presses=10,
-    ) is False
+    ) == "walk_failed"
 
 
-def test_cross_scripted_npc_false_when_the_gate_never_opens(monkeypatch):
+def test_cross_scripted_npc_reports_push_timeout_when_the_gate_never_opens(monkeypatch):
     world = _OneMapWorld(map_id=(0, 10), pos=(10, 15))
     monkeypatch.setattr(map_traveler.GridSnapshot, "from_reader",
                         staticmethod(lambda *a: _FakeSnap({(10, 19)})))
@@ -741,4 +851,22 @@ def test_cross_scripted_npc_false_when_the_gate_never_opens(monkeypatch):
     assert map_traveler.cross_scripted_npc(
         world, world, MapMemory(), (0, 10),
         stand_tile=(10, 19), face_dir="right", cross_dir="down", max_presses=10,
-    ) is False
+    ) == "push_timeout"
+
+
+def test_cross_scripted_npc_reports_off_map_when_not_on_the_expected_map(monkeypatch):
+    world = _OneMapWorld(map_id=(0, 16), pos=(10, 15))   # already on route_101
+    assert map_traveler.cross_scripted_npc(
+        world, world, MapMemory(), (0, 10),
+        stand_tile=(10, 19), face_dir="right", cross_dir="down", max_presses=10,
+    ) == "off_map"
+
+
+def test_cross_scripted_npc_reports_no_grid_when_the_snapshot_fails(monkeypatch):
+    world = _OneMapWorld(map_id=(0, 10), pos=(10, 15))
+    monkeypatch.setattr(map_traveler.GridSnapshot, "from_reader",
+                        staticmethod(lambda *a: None))
+    assert map_traveler.cross_scripted_npc(
+        world, world, MapMemory(), (0, 10),
+        stand_tile=(10, 19), face_dir="right", cross_dir="down", max_presses=10,
+    ) == "no_grid"

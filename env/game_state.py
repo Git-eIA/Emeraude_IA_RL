@@ -83,6 +83,9 @@ _ITEMS_POCKET_CAPACITY = 30    # bound the scan (code-safety #2)
 # delivered by the lab GivePokedex cutscene. has_item scans Items and never sees them.
 _POKEBALLS_POCKET_OFFSET = 0x650   # offsetof(SaveBlock1, bagPocket_PokeBalls)
 _POKEBALLS_POCKET_CAPACITY = 16    # bound the scan (code-safety #2)
+# Emerald periodically relocates SaveBlocks (anti-cheat shuffle); a pocket scan is
+# only trustworthy if the SB1/SB2 pointers did not move during it (review I3).
+_POCKET_READ_ATTEMPTS = 3
 
 
 @dataclass(frozen=True)
@@ -180,20 +183,30 @@ class EmeraldReader:
     def _pocket_has(
         self, pocket_offset: int, capacity: int, item_id: int, min_qty: int
     ) -> bool:
-        """True if the bag pocket at pocket_offset holds >= min_qty of item_id."""
-        sb1 = self._save_block1()
-        sb2 = self._save_block2()
-        if sb1 is None or sb2 is None:
-            return False
-        key = int.from_bytes(self._read(sb2 + _SECURITY_KEY_OFFSET, 4), "little") & 0xFFFF
-        base = sb1 + pocket_offset
-        for slot in range(capacity):
-            entry = self._read(base + slot * _ITEM_SLOT_SIZE, _ITEM_SLOT_SIZE)
-            slot_id = int.from_bytes(entry[0:2], "little")
-            if slot_id != item_id:
-                continue
-            qty = int.from_bytes(entry[2:4], "little") ^ key
-            return qty >= min_qty
+        """True if the bag pocket at pocket_offset holds >= min_qty of item_id.
+
+        The pointer reads and the scan are not atomic: SaveBlocks can relocate
+        mid-scan, leaving the scan reading garbage from the stale base. Re-read
+        both pointers after the scan and only trust a result whose pointers did
+        not move; retry a bounded number of times otherwise (review I3)."""
+        for _ in range(_POCKET_READ_ATTEMPTS):
+            sb1 = self._save_block1()
+            sb2 = self._save_block2()
+            if sb1 is None or sb2 is None:
+                return False
+            key = int.from_bytes(self._read(sb2 + _SECURITY_KEY_OFFSET, 4), "little") & 0xFFFF
+            base = sb1 + pocket_offset
+            result = False
+            for slot in range(capacity):
+                entry = self._read(base + slot * _ITEM_SLOT_SIZE, _ITEM_SLOT_SIZE)
+                slot_id = int.from_bytes(entry[0:2], "little")
+                if slot_id != item_id:
+                    continue
+                qty = int.from_bytes(entry[2:4], "little") ^ key
+                result = qty >= min_qty
+                break
+            if self._save_block1() == sb1 and self._save_block2() == sb2:
+                return result
         return False
 
     def _save_block1(self) -> int | None:
